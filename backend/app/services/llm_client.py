@@ -8,7 +8,6 @@ Rules:
 """
 from __future__ import annotations
 
-import json
 import logging
 import time
 from typing import Any, Optional
@@ -110,7 +109,7 @@ class LLMClient:
                 status = exc.response.status_code
                 body = exc.response.text
                 logger.error("LLM HTTP %d response body: %s", status, body)
-                # 429/502/503/504 are transient — retry. 500 is a hard server error — surface immediately.
+                # Retry transient statuses, surface others.
                 if status in (429, 502, 503, 504):
                     last_exc = exc
                     wait = 2 ** attempt
@@ -137,10 +136,11 @@ class LLMClient:
         On parse failure, sends one auto-repair request.
         """
         raw = self.chat(messages, json_mode=True, temperature=temperature, max_tokens=max_tokens)
+        logger.debug("LLM raw json_mode output: %s", self._preview(raw))
         try:
             return extract_json(raw)
         except ValueError as first_err:
-            logger.warning("JSON parse failed on first attempt: %s — attempting repair", first_err)
+            logger.warning("JSON parse failed on first attempt: %s - attempting repair", first_err)
             repair_messages = messages + [
                 {"role": "assistant", "content": raw},
                 {
@@ -148,19 +148,27 @@ class LLMClient:
                     "content": (
                         f"Your previous response could not be parsed as JSON. "
                         f"Error: {first_err}. "
-                        "Please output ONLY valid JSON — no markdown, no prose, no fences."
+                        "Please output ONLY valid JSON - no markdown, no prose, no fences."
                     ),
                 },
             ]
             raw2 = self.chat(
                 repair_messages, json_mode=True, temperature=0.0, max_tokens=max_tokens
             )
+            logger.debug("LLM raw json_mode repair output: %s", self._preview(raw2))
             try:
                 return extract_json(raw2)
             except ValueError as second_err:
                 raise LLMError(
                     f"LLM produced invalid JSON after repair attempt: {second_err}"
                 ) from second_err
+
+    def _preview(self, text: str, limit: int = 800) -> str:
+        """Return a single-line, truncated preview safe for debug logs."""
+        collapsed = " ".join((text or "").split())
+        if len(collapsed) > limit:
+            return collapsed[:limit] + " ...(truncated)"
+        return collapsed
 
 
 def get_llm_client() -> LLMClient:
