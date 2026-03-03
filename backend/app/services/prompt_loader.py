@@ -50,6 +50,29 @@ class PromptLoader:
         """Load from the config directory (e.g. hidden checklist)."""
         return self.load(filename, directory=self._settings.config_dir, **substitutions)
 
+    def load_pm_user_override(self) -> str:
+        """
+        Load optional user-maintained PM prompt override content.
+        Returns empty string if file is missing/unreadable.
+        """
+        path = self._settings.pm_user_prompt_file
+        if not path.exists():
+            return ""
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            logger.warning("Failed to read PM user prompt override '%s': %s", path, exc)
+            return ""
+        max_chars = max(1, int(self._settings.pm_user_prompt_max_chars))
+        if len(text) > max_chars:
+            logger.warning(
+                "PM user prompt override too large (%d chars). Truncating to %d.",
+                len(text),
+                max_chars,
+            )
+            text = text[:max_chars]
+        return text
+
 
 def get_prompt_loader() -> PromptLoader:
     return PromptLoader()

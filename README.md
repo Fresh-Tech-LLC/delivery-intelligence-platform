@@ -136,6 +136,8 @@ All prompts live in `/prompts/` and are loaded on every request — edit them wi
 
 The hidden BA checklist lives in `/config/ba_hidden_checklist.md`. It is injected as internal guidance for the LLM but never exposed to users.
 
+PM mode also supports an optional user-maintained override file (default: `local_data/prompt_overrides/pm_jira_query_user.md`) for instance-specific Jira details like custom fields and team names. See `config/pm_jira_query_user.example.md` for a template.
+
 ---
 
 ## Security Notes

@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     prompts_dir: Path = Path("prompts")
     config_dir: Path = Path("config")
     local_data_dir: Path = Path("local_data")
+    pm_user_prompt_file: Path = Path("local_data/prompt_overrides/pm_jira_query_user.md")
+    pm_user_prompt_max_chars: int = 20000
     templates_dir: Path = Path("frontend/templates")
     static_dir: Path = Path("frontend/static")
 
