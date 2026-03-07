@@ -285,7 +285,11 @@ class PowerAgent:
         project = self._jira.get_project(pk)
         proj_statuses = self._jira.get_project_statuses(pk)
         proj_perms = self._jira.get_my_permissions(project_key=pk)
-        create_meta = self._jira.get_create_meta(pk)
+        try:
+            create_meta = self._jira.get_create_meta(pk)
+        except JiraError as exc:
+            logger.warning("PowerAgent: createmeta unavailable (%s); issue types/required fields will be empty", exc)
+            create_meta = {}
         all_fields = self._jira.get_fields()
         sample = self._jira.search_issues_post(
             f'project = "{pk}" ORDER BY updated DESC',
