@@ -192,6 +192,10 @@ class JiraProjectContext(BaseModel):
     can_browse: bool
     hint_labels: list[str]       # heuristic from recent issue sample, not authoritative
     hint_components: list[str]   # heuristic from recent issue sample, not authoritative
+    semantic_field_aliases: dict[str, str] = Field(default_factory=dict)
+    # e.g. {"developer": "customfield_10200", "sprint": "customfield_10020", "team": "customfield_10300"}
+    hint_teams: list[dict[str, str]] = Field(default_factory=list)
+    # e.g. [{"name": "Platform Team", "id": "abc-123"}, ...]
     discovered_at: str
 
 

@@ -27,8 +27,27 @@ logger = logging.getLogger(__name__)
 
 MAX_ITERATIONS = 5
 POWER_MAX_TOKENS = 4096
-MAX_SUMMARY_CUSTOM_FIELDS = 10
+MAX_SUMMARY_CUSTOM_FIELDS = 30
 MAX_SUMMARY_HINTS = 8
+
+# Semantic alias detection — maps a stable label to candidate field name substrings (lowercase)
+_SEMANTIC_FIELD_CANDIDATES: dict[str, list[str]] = {
+    "developer":         ["developer", "dev", "developed by"],
+    "tested_by":         ["tested by", "tester", "qa", "qa tester"],
+    "team":              ["team", "squad", "tribe"],
+    "sprint":            ["sprint", "sprint name"],
+    "story_points":      ["story points", "story point", "points", "sp", "estimate", "story point estimate"],
+    "epic_link":         ["epic link", "epic name", "epic"],
+    "loe":               ["loe", "level of effort", "effort", "t-shirt size", "size"],
+    "business_severity": ["business severity", "business priority", "biz severity"],
+    "customer_impact":   ["customer impact", "customer priority"],
+    "target_release":    ["target release", "target version", "planned release"],
+    "risk":              ["risk", "risk level"],
+    "category":          ["category", "issue category", "work category"],
+    "environment":       ["environment", "affected environment"],
+}
+
+_TEAM_FIELD_NAMES = {"team", "squad", "tribe"}
 
 
 # ---------------------------------------------------------------------------
@@ -44,6 +63,127 @@ def _perm_flag(perms_response: dict, key: str) -> bool:
         return False
 
 
+def _detect_semantic_aliases(all_fields: list[dict]) -> dict[str, str]:
+    """Scan the global field list for semantically labelled custom fields."""
+    name_to_id = {f.get("name", "").lower().strip(): f["id"] for f in all_fields}
+    aliases: dict[str, str] = {}
+    for alias, candidates in _SEMANTIC_FIELD_CANDIDATES.items():
+        for candidate in candidates:
+            if candidate in name_to_id:
+                aliases[alias] = name_to_id[candidate]
+                break
+    return aliases
+
+
+def _detect_team_field_id(all_fields: list[dict]) -> str | None:
+    """Return the field ID for the Team/Squad/Tribe field, if one exists."""
+    for f in all_fields:
+        if f.get("name", "").lower().strip() in _TEAM_FIELD_NAMES:
+            return f["id"]
+    return None
+
+
+def _discover_teams(jira: "JiraClient", pk: str, team_field_id: str) -> list[dict[str, str]]:
+    """
+    Adaptive time-windowed team discovery.
+
+    Algorithm:
+    1. Two setup queries to get total issue count and project date bounds.
+    2. Divide the full date range into N evenly-spaced windows (N = 1–8, based on volume).
+    3. Query each window for issues with the team field set, requesting only that field.
+    4. Merge unique team name→ID pairs across all windows.
+
+    Total API calls: 2 (setup) + N (windows) = 3–10 calls.
+    Total issues sampled: N × results_per_window ≈ 100–800 with even temporal spread.
+    """
+    from datetime import datetime, timedelta
+
+    base_jql = f'project = "{pk}" AND "{team_field_id}" is not EMPTY'
+
+    # Setup pass 1: total count + oldest issue date
+    try:
+        oldest_data = jira.search_issues_post(
+            f'{base_jql} ORDER BY created ASC', max_results=1,
+            fields=[team_field_id, "created"],
+        )
+    except JiraError as exc:
+        logger.warning("PowerAgent._discover_teams: setup query failed (%s)", exc)
+        return []
+
+    total_issues = oldest_data.get("total", len(oldest_data.get("issues", [])))
+    if total_issues == 0:
+        return []
+    oldest_issues = oldest_data.get("issues", [])
+    if not oldest_issues:
+        return []
+    oldest_created_str = oldest_issues[0].get("fields", {}).get("created", "")
+
+    # Setup pass 2: newest issue date
+    try:
+        newest_data = jira.search_issues_post(
+            f'{base_jql} ORDER BY created DESC', max_results=1,
+            fields=[team_field_id, "created"],
+        )
+    except JiraError as exc:
+        logger.warning("PowerAgent._discover_teams: newest-issue query failed (%s)", exc)
+        return []
+    newest_issues = newest_data.get("issues", [])
+    if not newest_issues:
+        return []
+    newest_created_str = newest_issues[0].get("fields", {}).get("created", "")
+
+    def _parse_jira_date(s: str) -> datetime:
+        try:
+            return datetime.fromisoformat(s.replace("Z", "+00:00")).replace(tzinfo=None)
+        except Exception:
+            return datetime.utcnow()
+
+    oldest_date = _parse_jira_date(oldest_created_str)
+    newest_date = _parse_jira_date(newest_created_str)
+    total_days = max((newest_date - oldest_date).days, 1)
+
+    if total_issues <= 200:    num_windows = 1
+    elif total_issues <= 1000: num_windows = 3
+    elif total_issues <= 5000: num_windows = 5
+    else:                      num_windows = 8
+
+    results_per_window = max(50, min(100, 600 // num_windows))
+    window_days = total_days / num_windows
+
+    logger.info(
+        "PowerAgent._discover_teams: %d issues, %d-day span → %d windows × %d results each",
+        total_issues, total_days, num_windows, results_per_window,
+    )
+
+    seen_team_ids: set[str] = set()
+    hint_teams: list[dict[str, str]] = []
+
+    for i in range(num_windows):
+        win_start = oldest_date + timedelta(days=i * window_days)
+        win_end   = oldest_date + timedelta(days=(i + 1) * window_days)
+        window_jql = (
+            f'{base_jql} AND created >= "{win_start.strftime("%Y-%m-%d")}"'
+            f' AND created <= "{win_end.strftime("%Y-%m-%d")}" ORDER BY created ASC'
+        )
+        try:
+            data = jira.search_issues_post(window_jql, max_results=results_per_window, fields=[team_field_id])
+        except JiraError as exc:
+            logger.warning("PowerAgent._discover_teams: window %d failed (%s); skipping", i, exc)
+            continue
+        for issue in data.get("issues", []):
+            fval = issue.get("fields", {}).get(team_field_id)
+            if not isinstance(fval, dict):
+                continue
+            tid   = str(fval.get("id", ""))
+            tname = str(fval.get("name", ""))
+            if tid and tname and tid not in seen_team_ids:
+                seen_team_ids.add(tid)
+                hint_teams.append({"name": tname, "id": tid})
+
+    logger.info("PowerAgent._discover_teams: found %d unique team(s)", len(hint_teams))
+    return hint_teams
+
+
 def _normalize_project_ctx(
     project_key: str,
     project: dict,
@@ -53,6 +193,8 @@ def _normalize_project_ctx(
     all_fields: list[dict],
     sample: dict,
     fallback_issue_types: list[str] | None = None,
+    semantic_field_aliases: dict[str, str] | None = None,
+    hint_teams: list[dict[str, str]] | None = None,
 ) -> JiraProjectContext:
     """Normalize raw Jira discovery responses into a compact JiraProjectContext."""
     # Basic project info
@@ -150,6 +292,8 @@ def _normalize_project_ctx(
         can_browse=can_browse,
         hint_labels=hint_labels,
         hint_components=hint_components,
+        semantic_field_aliases=semantic_field_aliases or {},
+        hint_teams=hint_teams or [],
         discovered_at=datetime.now(timezone.utc).isoformat(),
     )
 
@@ -174,11 +318,21 @@ def _build_context_summary(global_ctx: dict, project_ctx: JiraProjectContext | N
     lines.append(f"Issue types: {', '.join(project_ctx.issue_types)}")
     lines.append(f"Statuses: {', '.join(project_ctx.statuses)}")
 
-    # Custom fields — cap at MAX_SUMMARY_CUSTOM_FIELDS, prefer custom ones
+    # Custom fields — show up to MAX_SUMMARY_CUSTOM_FIELDS (raised to 30)
     custom_fields = [f for f in project_ctx.field_mappings if f.custom][:MAX_SUMMARY_CUSTOM_FIELDS]
     if custom_fields:
         cf_parts = [f"{f.name} ({f.field_id})" for f in custom_fields]
-        lines.append(f"Custom fields (top {len(cf_parts)}): {', '.join(cf_parts)}")
+        lines.append(f"Custom fields ({len(cf_parts)}): {', '.join(cf_parts)}")
+
+    # Semantic field aliases — map natural-language concepts to field IDs
+    if project_ctx.semantic_field_aliases:
+        alias_parts = [f"{alias} → {fid}" for alias, fid in project_ctx.semantic_field_aliases.items()]
+        lines.append(f"Semantic field aliases (use these instead of guessing): {', '.join(alias_parts)}")
+
+    # Team name→ID map — team names do not work in JQL, IDs required
+    if project_ctx.hint_teams:
+        team_parts = [f"{t['name']} (id={t['id']})" for t in project_ctx.hint_teams]
+        lines.append(f"Known team IDs (team names do NOT work in JQL — use IDs): {', '.join(team_parts)}")
 
     # Required create fields — show readable names
     if project_ctx.required_create_fields:
@@ -299,14 +453,27 @@ class PowerAgent:
             except JiraError as exc2:
                 logger.warning("PowerAgent: get_issue_types also failed (%s); issue types will be empty", exc2)
         all_fields = self._jira.get_fields()
+
+        # Detect semantic aliases and team field before sample fetch
+        semantic_field_aliases = _detect_semantic_aliases(all_fields)
+        team_field_id = _detect_team_field_id(all_fields)
+        if semantic_field_aliases:
+            logger.info("PowerAgent: detected semantic aliases: %s", list(semantic_field_aliases.keys()))
+
         sample = self._jira.search_issues_post(
             f'project = "{pk}" ORDER BY updated DESC',
             max_results=10,
             fields=["issuetype", "status", "priority", "labels", "components", "assignee", "reporter"],
         )
 
+        # Adaptive time-windowed team discovery
+        hint_teams: list[dict[str, str]] = []
+        if team_field_id:
+            hint_teams = _discover_teams(self._jira, pk, team_field_id)
+
         ctx = _normalize_project_ctx(
-            pk, project, proj_statuses, proj_perms, create_meta, all_fields, sample, fallback_issue_types
+            pk, project, proj_statuses, proj_perms, create_meta, all_fields, sample,
+            fallback_issue_types, semantic_field_aliases, hint_teams,
         )
 
         ws = self._store.load_workspace(session_id)
