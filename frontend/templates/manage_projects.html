@@ -172,4 +172,204 @@
 
   </div><!-- /main panel -->
 </div><!-- /flex layout -->
+
+<!-- Batch Readiness Report -->
+<div class="card" style="margin-top:1.5rem;">
+  <p class="card-title">Batch Readiness Report</p>
+  <p class="text-muted" style="font-size:0.85rem; margin-bottom:1rem;">
+    Score a range of Jira issues against the project's readiness checklist. Results are ranked by score descending. Max 500 issues per run.
+  </p>
+
+  <!-- Form panel -->
+  <div id="batch-form-panel">
+    <div style="display:flex; gap:0.75rem; align-items:flex-end; flex-wrap:wrap;">
+      <div>
+        <label for="batch-project-key" style="font-size:0.85rem; color:var(--muted);">Project Key</label>
+        <input id="batch-project-key" type="text"
+               value="{{ target if target != 'default' else '' }}"
+               placeholder="e.g. PROJ"
+               style="display:block; width:120px; margin-top:0.25rem; padding:0.4rem 0.6rem; border:1px solid var(--border); border-radius:4px; font-size:0.9rem;">
+      </div>
+      <div>
+        <label for="batch-start" style="font-size:0.85rem; color:var(--muted);">Start #</label>
+        <input id="batch-start" type="number" min="1" placeholder="100"
+               style="display:block; width:90px; margin-top:0.25rem; padding:0.4rem 0.6rem; border:1px solid var(--border); border-radius:4px; font-size:0.9rem;">
+      </div>
+      <div>
+        <label for="batch-end" style="font-size:0.85rem; color:var(--muted);">End #</label>
+        <input id="batch-end" type="number" min="1" placeholder="200"
+               style="display:block; width:90px; margin-top:0.25rem; padding:0.4rem 0.5rem; border:1px solid var(--border); border-radius:4px; font-size:0.9rem;">
+      </div>
+      <button id="batch-start-btn" class="btn btn-primary" onclick="batchStart()">Generate Report</button>
+    </div>
+    <p id="batch-form-error" style="color:#dc2626; font-size:0.85rem; margin-top:0.5rem; display:none;"></p>
+  </div>
+
+  <!-- Progress panel -->
+  <div id="batch-progress-panel" style="display:none;">
+    <div style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
+      <span id="batch-progress-text" class="text-muted" style="font-size:0.9rem;">Starting…</span>
+      <button class="btn btn-secondary btn-sm" onclick="batchCancel()">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Results panel -->
+  <div id="batch-results-panel" style="display:none; margin-top:0.75rem;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+      <p id="batch-results-summary" style="font-size:0.85rem; color:var(--muted); margin:0;"></p>
+      <button class="btn btn-secondary btn-sm" onclick="batchReset()">New Report</button>
+    </div>
+    <table style="width:100%; border-collapse:collapse; font-size:0.875rem;">
+      <thead>
+        <tr style="border-bottom:2px solid var(--border);">
+          <th style="text-align:left; padding:0.4rem 0.5rem;">Key</th>
+          <th style="text-align:right; padding:0.4rem 0.5rem;">Score</th>
+          <th style="text-align:left; padding:0.4rem 0.5rem; color:var(--muted);">Note</th>
+        </tr>
+      </thead>
+      <tbody id="batch-results-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(function() {
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  var _es = null;
+
+  function showForm() {
+    document.getElementById('batch-form-panel').style.display = '';
+    document.getElementById('batch-progress-panel').style.display = 'none';
+    document.getElementById('batch-results-panel').style.display = 'none';
+    var btn = document.getElementById('batch-start-btn');
+    if (btn) btn.disabled = false;
+  }
+  function showProgress(ev) {
+    document.getElementById('batch-form-panel').style.display = 'none';
+    document.getElementById('batch-progress-panel').style.display = '';
+    document.getElementById('batch-results-panel').style.display = 'none';
+    var range = (ev.project_key && ev.start_num && ev.end_num)
+      ? ev.project_key + '-' + ev.start_num + ' \u2192 ' + ev.project_key + '-' + ev.end_num + ' \u2014 '
+      : '';
+    document.getElementById('batch-progress-text').textContent =
+      range + (ev.key ? 'Checking ' + ev.key + '\u2026 ' : '') + '(' + (ev.processed || 0) + '/' + (ev.total || 0) + ')';
+  }
+  function showResults(job) {
+    var results = job.results || [];
+    var status = job.status;
+    var processed = job.processed || 0;
+    var total = job.total || 0;
+    var successCount = job.success_count || 0;
+    var errorCount = job.error_count || 0;
+
+    document.getElementById('batch-form-panel').style.display = 'none';
+    document.getElementById('batch-progress-panel').style.display = 'none';
+    document.getElementById('batch-results-panel').style.display = '';
+
+    var summaryEl = document.getElementById('batch-results-summary');
+    if (status === 'cancelled') {
+      summaryEl.textContent = 'Cancelled after ' + processed + '/' + total + ' issues \u2014 ' + successCount + ' scored, ' + errorCount + ' errors' + (job.error ? ' (' + job.error + ')' : '');
+    } else if (status === 'failed') {
+      summaryEl.textContent = 'Failed: ' + (job.error || 'unknown error');
+    } else {
+      summaryEl.textContent = 'Done: ' + successCount + ' scored, ' + errorCount + ' errors';
+    }
+
+    var sorted = results.slice().sort(function(a, b) {
+      if (a.score == null && b.score == null) return 0;
+      if (a.score == null) return 1;
+      if (b.score == null) return -1;
+      return b.score - a.score;
+    });
+    document.getElementById('batch-results-body').innerHTML = sorted.map(function(r) {
+      return '<tr style="border-bottom:1px solid var(--border);">' +
+        '<td style="padding:0.4rem 0.5rem;">' + escHtml(r.key) + '</td>' +
+        (r.score != null
+          ? '<td style="text-align:right;padding:0.4rem 0.5rem;font-weight:600;">' + r.score + '</td>'
+          : '<td style="text-align:right;padding:0.4rem 0.5rem;color:var(--muted);">\u2014</td>') +
+        '<td style="padding:0.4rem 0.5rem;font-size:0.8rem;color:var(--muted);">' + escHtml(r.error || '') + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function connectStream() {
+    if (_es) { _es.close(); _es = null; }
+    _es = new EventSource('/api/batch/stream');
+    _es.onmessage = function(e) {
+      var ev; try { ev = JSON.parse(e.data); } catch(err) { return; }
+      if (ev.type === 'progress') {
+        showProgress(ev);
+      } else if (ev.type === 'snapshot') {
+        showResults(ev.job);
+      } else if (ev.type === 'done') {
+        _es.close(); _es = null;
+      }
+    };
+  }
+
+  window.batchStart = async function() {
+    var key = (document.getElementById('batch-project-key').value || '').trim();
+    var start = parseInt(document.getElementById('batch-start').value);
+    var end = parseInt(document.getElementById('batch-end').value);
+    var errEl = document.getElementById('batch-form-error');
+    var btn = document.getElementById('batch-start-btn');
+    errEl.style.display = 'none';
+
+    if (!key || !/^[A-Za-z][A-Za-z0-9_\-]{0,49}$/.test(key)) {
+      errEl.textContent = 'Enter a valid project key (e.g. PROJ).'; errEl.style.display = ''; return;
+    }
+    if (!start || !end || end < start) {
+      errEl.textContent = 'End # must be \u2265 Start #.'; errEl.style.display = ''; return;
+    }
+    if (end - start + 1 > 500) {
+      errEl.textContent = 'Range cannot exceed 500 issues.'; errEl.style.display = ''; return;
+    }
+
+    btn.disabled = true;
+    try {
+      var resp = await fetch('/api/batch/start', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({project_key: key, start_num: start, end_num: end}),
+      });
+      var data = await resp.json();
+      if (!resp.ok) {
+        errEl.textContent = data.detail || 'HTTP ' + resp.status;
+        errEl.style.display = '';
+        btn.disabled = false;
+        return;
+      }
+      showProgress({key: key.toUpperCase() + '-' + start, processed: 0, total: end - start + 1, project_key: key.toUpperCase(), start_num: start, end_num: end});
+      connectStream();
+    } catch (err) {
+      errEl.textContent = 'Error: ' + err.message; errEl.style.display = '';
+      btn.disabled = false;
+    }
+  };
+
+  window.batchCancel = async function() {
+    try { await fetch('/api/batch/cancel', {method: 'POST'}); } catch(e) {}
+  };
+
+  window.batchReset = function() {
+    if (_es) { _es.close(); _es = null; }
+    showForm();
+  };
+
+  // On page load: restore state from last job if any
+  fetch('/api/batch/status').then(function(r) {
+    return r.ok ? r.json() : null;
+  }).then(function(job) {
+    if (!job || job.status === 'idle') return;
+    if (job.status === 'running') {
+      showProgress({key: job.current_key, processed: job.processed, total: job.total, project_key: job.project_key, start_num: job.start_num, end_num: job.end_num});
+      connectStream();
+    } else {
+      showResults(job);
+    }
+  }).catch(function() {});
+})();
+</script>
+
 {% endblock %}

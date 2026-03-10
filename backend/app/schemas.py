@@ -349,6 +349,42 @@ class DeleteChecklistResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Batch Readiness Report
+# ---------------------------------------------------------------------------
+
+
+class BatchJobStatus(str, Enum):
+    idle = "idle"
+    running = "running"
+    done = "done"
+    cancelled = "cancelled"
+    failed = "failed"
+
+
+class BatchReadinessResult(BaseModel):
+    key: str
+    score: Optional[int] = None   # None if skipped/errored
+    error: Optional[str] = None   # short error string
+
+
+class BatchReadinessJob(BaseModel):
+    job_id: str                   # uuid4 hex, changes each run
+    project_key: str
+    start_num: int
+    end_num: int
+    status: BatchJobStatus = BatchJobStatus.idle
+    results: list[BatchReadinessResult] = Field(default_factory=list)
+    current_key: str = ""
+    processed: int = 0
+    total: int = 0
+    success_count: int = 0
+    error_count: int = 0
+    started_at: str = ""
+    finished_at: str = ""
+    error: str = ""               # top-level runner-level failure message
+
+
+# ---------------------------------------------------------------------------
 # Generic error
 # ---------------------------------------------------------------------------
 

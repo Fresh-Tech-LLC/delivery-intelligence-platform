@@ -274,8 +274,8 @@ class BAAgent:
     # Existing Jira story flow
     # ------------------------------------------------------------------
 
-    def pull_jira_story(self, session_id: str, jira_story_key: str) -> PulledJiraStory:
-        """Fetch a Jira issue by key and normalize it to PulledJiraStory."""
+    def _pull_story_raw(self, jira_story_key: str) -> PulledJiraStory:
+        """Fetch a Jira issue by key and normalize it to PulledJiraStory. No workspace touches."""
         if not self._jira:
             raise JiraError("Jira is not configured.")
 
@@ -374,7 +374,7 @@ class BAAgent:
         labels = fields.get("labels") or []
         components = [_extract_string_field(c) for c in (fields.get("components") or [])]
 
-        story = PulledJiraStory(
+        return PulledJiraStory(
             key=raw.get("key", jira_story_key),
             summary=fields.get("summary", ""),
             description=description,
@@ -389,23 +389,21 @@ class BAAgent:
             last_pulled_at=datetime.now(timezone.utc).isoformat(),
         )
 
+    def pull_jira_story(self, session_id: str, jira_story_key: str) -> PulledJiraStory:
+        """Fetch a Jira issue by key, normalize it, and persist to workspace."""
+        story = self._pull_story_raw(jira_story_key)
         ws = self._store.load_workspace(session_id)
         ws.jira_story_key = story.key
         ws.pulled_jira_story = story.model_dump()
         self._store.save_workspace(ws)
         return story
 
-    def check_readiness_from_jira_story(self, session_id: str) -> "ReadinessResponse":
-        """Run a readiness check against the pulled Jira story stored in the workspace."""
-        from backend.app.schemas import ReadinessResponse
-
-        ws = self._store.load_workspace(session_id)
-        if not ws.pulled_jira_story:
-            raise ValueError("No pulled Jira story in workspace. Pull a story first.")
-
-        story = PulledJiraStory(**ws.pulled_jira_story)
-        system = self._system_readiness(session_id, ws.jira_project_key)
+    def _run_readiness_on_story(
+        self, story: PulledJiraStory, jira_project_key: str, session_id: str = ""
+    ) -> ReadinessReport:
+        """Build story text, call LLM, return ReadinessReport. No workspace touches."""
         schema_hint = json.dumps(ReadinessReport.model_json_schema(), indent=2)
+        system = self._system_readiness(session_id, jira_project_key)
 
         story_text = (
             f"Key: {story.key}\n"
@@ -438,11 +436,28 @@ class BAAgent:
             },
         ]
         data = self._llm.chat_json(messages, temperature=0.1)
-        report = ReadinessReport(**data)
+        return ReadinessReport(**data)
+
+    def check_readiness_from_jira_story(self, session_id: str) -> "ReadinessResponse":
+        """Run a readiness check against the pulled Jira story stored in the workspace."""
+        from backend.app.schemas import ReadinessResponse
+
+        ws = self._store.load_workspace(session_id)
+        if not ws.pulled_jira_story:
+            raise ValueError("No pulled Jira story in workspace. Pull a story first.")
+
+        story = PulledJiraStory(**ws.pulled_jira_story)
+        report = self._run_readiness_on_story(story, ws.jira_project_key, session_id)
 
         ws.readiness_report = report.model_dump()
         self._store.save_workspace(ws)
         return ReadinessResponse(session_id=session_id, report=report)
+
+    def score_story(self, jira_story_key: str, jira_project_key: str) -> tuple[int, str]:
+        """Pull story + run readiness check. No session workspace. Returns (score, summary)."""
+        story = self._pull_story_raw(jira_story_key)
+        report = self._run_readiness_on_story(story, jira_project_key)
+        return report.score, report.summary
 
     def approve_jira_story(self, session_id: str) -> dict[str, Any]:
         """Stamp an existing Jira story as ai-approved (label + comment).
