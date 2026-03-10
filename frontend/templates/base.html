@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{% block title %}Project Delivery Copilot{% endblock %}</title>
+  <title>{% block title %}Delivery Navigator{% endblock %}</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
 <div class="app-shell">
 
   <nav class="top-nav">
-    <span class="brand">📋 Delivery Copilot</span>
+    <span class="brand">📋 Delivery Navigator</span>
     <div class="nav-links">
       <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">Home</a>
       <a href="/ba/requirements" class="nav-link {% if '/ba/' in request.url.path %}active{% endif %}">BA Mode</a>

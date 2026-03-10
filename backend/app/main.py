@@ -1,6 +1,5 @@
 """
-Project Delivery Copilot — Phase 1 MVP
-FastAPI application with Jinja2 server-rendered UI.
+Delivery Navigator — FastAPI application with Jinja2 server-rendered UI.
 """
 from __future__ import annotations
 
@@ -40,7 +39,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 settings = get_settings()
 
-app = FastAPI(title="Project Delivery Copilot", version="1.0.0")
+app = FastAPI(title="Delivery Navigator", version="1.0.0")
 
 _base = Path(__file__).resolve().parent.parent.parent  # repo root
 
