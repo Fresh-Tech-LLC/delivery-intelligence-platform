@@ -18,6 +18,7 @@ from fastapi.templating import Jinja2Templates
 
 from backend.app.config import get_settings
 from backend.app.routers import ba, jira, pm, power
+from backend.app.routers import projects as projects_router
 from backend.app.services.ba_agent import BAAgent
 from backend.app.services.document_store import get_document_store
 from backend.app.services.jira_client import JiraError, get_jira_client
@@ -58,6 +59,7 @@ app.include_router(ba.router)
 app.include_router(pm.router)
 app.include_router(jira.router)
 app.include_router(power.router)
+app.include_router(projects_router.router)
 
 # ---------------------------------------------------------------------------
 # UI helpers
@@ -490,3 +492,129 @@ async def global_exception_handler(request: Request, exc: Exception):
         {"request": request, "detail": str(exc)},
         status_code=500,
     )
+
+
+# ---------------------------------------------------------------------------
+# Manage Projects UI
+# ---------------------------------------------------------------------------
+
+
+def _manage_projects_context(request: Request, sid: str, target: str, msg: str = "", error: str = ""):
+    store = get_document_store()
+    projects = store.load_project_registry()
+    # Determine resolved target key (None = default)
+    key = None if target == "default" else target if target else None
+    checklist = store.get_checklist_content_response(key=key)
+    history = store.list_checklist_versions(key=key)
+    return {
+        "request": request,
+        "session_id": sid,
+        "projects": projects,
+        "target": target or "default",
+        "checklist": checklist,
+        "history": history,
+        "msg": msg,
+        "error": error,
+    }
+
+
+@app.get("/manage-projects", response_class=HTMLResponse)
+async def manage_projects_page(request: Request, target: str = "default"):
+    sid = _get_or_create_session(request)
+    msg = request.query_params.get("msg", "")
+    ctx = _manage_projects_context(request, sid, target, msg=msg)
+    resp = templates.TemplateResponse("manage_projects.html", ctx)
+    resp.set_cookie("session_id", sid, httponly=True)
+    return resp
+
+
+@app.post("/manage-projects/add", response_class=HTMLResponse)
+async def manage_projects_add(request: Request, key: str = Form(...)):
+    sid = _get_or_create_session(request)
+    key = key.strip().upper()
+    try:
+        from backend.app.services.document_store import validate_project_key
+        validate_project_key(key)
+    except ValueError as exc:
+        ctx = _manage_projects_context(request, sid, "default", error=str(exc))
+        resp = templates.TemplateResponse("manage_projects.html", ctx)
+        resp.set_cookie("session_id", sid, httponly=True)
+        return resp
+    # Delegate to API
+    store = get_document_store()
+    jira_client = get_jira_client()
+    project_name = ""
+    if jira_client.is_configured():
+        try:
+            info = jira_client.get_project(key)
+            project_name = info.get("name", "")
+        except Exception:
+            pass
+    _, already_existed = store.add_project(key, name=project_name)
+    msg = "already_registered" if already_existed else "added"
+    return RedirectResponse(url=f"/manage-projects?target={key}&msg={msg}", status_code=303)
+
+
+@app.post("/manage-projects/remove", response_class=HTMLResponse)
+async def manage_projects_remove(request: Request, key: str = Form(...)):
+    sid = _get_or_create_session(request)
+    store = get_document_store()
+    store.remove_project(key)
+    return RedirectResponse(url="/manage-projects?target=default&msg=removed", status_code=303)
+
+
+@app.post("/manage-projects/checklist/save", response_class=HTMLResponse)
+async def manage_projects_checklist_save(
+    request: Request,
+    target: str = Form(...),
+    content: str = Form(...),
+):
+    sid = _get_or_create_session(request)
+    store = get_document_store()
+    key = None if target == "default" else target
+    try:
+        store.save_checklist(key=key, content=content)
+    except ValueError as exc:
+        ctx = _manage_projects_context(request, sid, target, error=str(exc))
+        resp = templates.TemplateResponse("manage_projects.html", ctx)
+        resp.set_cookie("session_id", sid, httponly=True)
+        return resp
+    return RedirectResponse(url=f"/manage-projects?target={target}&msg=saved", status_code=303)
+
+
+@app.post("/manage-projects/checklist/restore", response_class=HTMLResponse)
+async def manage_projects_checklist_restore(
+    request: Request,
+    target: str = Form(...),
+    version: int = Form(...),
+):
+    sid = _get_or_create_session(request)
+    store = get_document_store()
+    key = None if target == "default" else target
+    try:
+        store.restore_checklist_version(key=key, version=version)
+    except (FileNotFoundError, ValueError) as exc:
+        ctx = _manage_projects_context(request, sid, target, error=str(exc))
+        resp = templates.TemplateResponse("manage_projects.html", ctx)
+        resp.set_cookie("session_id", sid, httponly=True)
+        return resp
+    return RedirectResponse(url=f"/manage-projects?target={target}&msg=restored", status_code=303)
+
+
+@app.post("/manage-projects/checklist/delete-files", response_class=HTMLResponse)
+async def manage_projects_checklist_delete(request: Request, target: str = Form(...)):
+    sid = _get_or_create_session(request)
+    if target == "default":
+        ctx = _manage_projects_context(request, sid, target, error="The default checklist files cannot be deleted.")
+        resp = templates.TemplateResponse("manage_projects.html", ctx)
+        resp.set_cookie("session_id", sid, httponly=True)
+        return resp
+    store = get_document_store()
+    try:
+        store.delete_checklist_files(target)
+    except ValueError as exc:
+        ctx = _manage_projects_context(request, sid, target, error=str(exc))
+        resp = templates.TemplateResponse("manage_projects.html", ctx)
+        resp.set_cookie("session_id", sid, httponly=True)
+        return resp
+    return RedirectResponse(url=f"/manage-projects?target=default&msg=deleted", status_code=303)

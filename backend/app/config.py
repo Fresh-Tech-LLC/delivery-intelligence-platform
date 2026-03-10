@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     prompts_dir: Path = Path("prompts")
     config_dir: Path = Path("config")
     local_data_dir: Path = Path("local_data")
+    data_dir: Path = Path("data")                              # mutable runtime data (projects, checklists)
     pm_user_prompt_file: Path = Path("local_data/prompt_overrides/pm_jira_query_user.md")
     pm_user_prompt_max_chars: int = 20000
     templates_dir: Path = Path("frontend/templates")

@@ -19,6 +19,11 @@ class SessionWorkspace(BaseModel):
     uploaded_docs: list[str] = Field(default_factory=list)  # list of filenames (readiness)
     context_docs: dict[str, str] = Field(default_factory=dict)  # filename → extracted text (requirements)
     jira_project_ctx: Optional[dict[str, Any]] = None  # normalized JiraProjectContext, Power Mode
+    # BA Mode — project + source selection
+    jira_project_key: str = ""   # freeform; stored as-is; resolve_checklist() falls back to default if no custom file
+    ba_source: str = "new"       # "new" | "existing_story"
+    jira_story_key: str = ""     # Jira key being analysed (existing_story mode only)
+    pulled_jira_story: Optional[dict[str, Any]] = None  # serialized PulledJiraStory
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +259,93 @@ class PowerStepEvent(BaseModel):
     content: str
     jql: Optional[str] = None
     result_count: Optional[int] = None
+
+
+# ---------------------------------------------------------------------------
+# BA Mode — pulled Jira story (normalized, not raw payload)
+# ---------------------------------------------------------------------------
+
+
+class PulledJiraStory(BaseModel):
+    key: str
+    summary: str
+    description: str                                           # ADF flattened to plain text
+    acceptance_criteria: list[str] = Field(default_factory=list)  # empty if not parseable
+    ac_raw: str = ""                                           # original AC field value preserved
+    status: str = ""
+    priority: str = ""
+    assignee: str = ""
+    labels: list[str] = Field(default_factory=list)
+    components: list[str] = Field(default_factory=list)
+    issue_type: str = ""
+    last_pulled_at: str                                        # ISO datetime of last fetch
+
+
+# ---------------------------------------------------------------------------
+# Manage Jira Projects
+# ---------------------------------------------------------------------------
+
+
+class ManagedProject(BaseModel):
+    jira_project_key: str        # validated: [A-Z][A-Z0-9_-]{0,49}
+    jira_project_name: str = ""  # populated from Jira if available; empty if lookup fails
+    has_custom_checklist: bool = False  # derived from file presence on load, not stored state
+    created_at: str              # ISO datetime
+
+
+class ChecklistVersionInfo(BaseModel):
+    version: int                 # monotonic, 1-indexed
+    saved_at: str                # ISO datetime of archival
+
+
+# Project API request/response models
+
+class AddProjectRequest(BaseModel):
+    jira_project_key: str
+
+
+class AddProjectResponse(BaseModel):
+    project: ManagedProject
+    already_existed: bool
+
+
+class RemoveProjectResponse(BaseModel):
+    jira_project_key: str
+    message: str
+
+
+class ChecklistContentResponse(BaseModel):
+    project_key: str             # "default" or a project key
+    content: str
+    current_version: int
+
+
+class ChecklistSaveRequest(BaseModel):
+    content: str
+
+
+class ChecklistSaveResponse(BaseModel):
+    project_key: str
+    archived_as_version: Optional[int] = None  # None on first save (nothing archived yet)
+    new_version: int                            # 1 on first save; archived + 1 on subsequent
+
+
+class ChecklistHistoryResponse(BaseModel):
+    project_key: str
+    versions: list[ChecklistVersionInfo]
+
+
+class ChecklistVersionContentResponse(BaseModel):
+    project_key: str
+    version: int
+    saved_at: str
+    content: str
+
+
+class DeleteChecklistResponse(BaseModel):
+    project_key: str
+    deleted_files: int
+    message: str
 
 
 # ---------------------------------------------------------------------------

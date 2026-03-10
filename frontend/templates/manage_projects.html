@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}Manage Projects — Delivery Navigator{% endblock %}
+
+{% block content %}
+<h1 style="font-size:1.4rem; font-weight:700; margin-bottom:1rem;">Manage Jira Projects</h1>
+<p class="text-muted" style="margin-bottom:1.5rem;">Register Jira projects and manage their readiness checklist files. Each project can have a custom checklist or use the default.</p>
+
+{% if msg %}
+<div class="alert {% if msg == 'saved' or msg == 'restored' %}alert-success{% elif msg == 'already_registered' %}alert-warning{% elif msg == 'removed' or msg == 'deleted' %}alert-info{% else %}alert-info{% endif %}" style="margin-bottom:1rem;">
+  {% if msg == 'saved' %}Checklist saved successfully.
+  {% elif msg == 'restored' %}Version restored and saved as new current version.
+  {% elif msg == 'already_registered' %}Project is already registered — no duplicate created.
+  {% elif msg == 'removed' %}Project removed from registry. Checklist files (if any) are retained on disk.
+  {% elif msg == 'deleted' %}Checklist files permanently deleted.
+  {% elif msg == 'added' %}Project registered successfully.
+  {% else %}{{ msg }}{% endif %}
+</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger" style="margin-bottom:1rem;">{{ error }}</div>
+{% endif %}
+
+<div style="display:flex; gap:1.5rem; align-items:flex-start;">
+
+  <!-- Left panel: project list + add form -->
+  <div style="width:240px; flex-shrink:0;">
+    <div class="card" style="margin-bottom:1rem;">
+      <p class="card-title" style="margin-bottom:0.75rem;">Registered Projects</p>
+
+      <!-- Default checklist link -->
+      <a href="/manage-projects?target=default"
+         class="nav-link {% if target == 'default' %}active{% endif %}"
+         style="display:block; padding:0.4rem 0.5rem; border-radius:4px; margin-bottom:0.25rem; {% if target == 'default' %}background:#eff6ff; font-weight:600;{% endif %}">
+        📄 Default Checklist
+      </a>
+
+      {% for p in projects %}
+      <div style="display:flex; align-items:center; gap:0.25rem; margin-bottom:0.25rem;">
+        <a href="/manage-projects?target={{ p.jira_project_key }}"
+           class="nav-link"
+           style="flex:1; padding:0.4rem 0.5rem; border-radius:4px; {% if target == p.jira_project_key %}background:#eff6ff; font-weight:600;{% endif %}">
+          {{ p.jira_project_key }}{% if p.jira_project_name %} <span style="color:var(--muted); font-size:0.8rem;">{{ p.jira_project_name }}</span>{% endif %}
+          {% if p.has_custom_checklist %}<span title="Has custom checklist" style="font-size:0.7rem; margin-left:0.25rem;">✏️</span>{% endif %}
+        </a>
+        <form method="post" action="/manage-projects/remove" style="margin:0;" onsubmit="return confirm('Remove {{ p.jira_project_key }} from registry? Checklist files will be retained.')">
+          <input type="hidden" name="key" value="{{ p.jira_project_key }}">
+          <button type="submit" class="btn btn-sm" style="padding:0.2rem 0.4rem; font-size:0.75rem; background:none; border:none; color:var(--muted); cursor:pointer;" title="Remove from registry">✕</button>
+        </form>
+      </div>
+      {% endfor %}
+
+      {% if not projects %}
+      <p class="text-muted" style="font-size:0.85rem; padding:0.5rem 0;">No projects registered yet.</p>
+      {% endif %}
+    </div>
+
+    <!-- Add project form -->
+    <div class="card">
+      <p class="card-title" style="margin-bottom:0.75rem;">Add Project</p>
+      <form method="post" action="/manage-projects/add">
+        <input type="text" name="key" placeholder="e.g. PROJ" required
+               style="width:100%; margin-bottom:0.5rem; padding:0.4rem 0.6rem; border:1px solid var(--border); border-radius:4px; font-size:0.9rem;"
+               pattern="[A-Z][A-Z0-9_\-]{0,49}" title="Uppercase letters, digits, hyphens, underscores">
+        <button type="submit" class="btn btn-primary btn-sm" style="width:100%;">Register</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Main panel: checklist editor for selected target -->
+  <div style="flex:1; min-width:0;">
+    {% if target == 'default' %}
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+        <h2 style="font-size:1.1rem; font-weight:600;">Default Readiness Checklist</h2>
+        <span class="badge" style="background:#e2e8f0; color:var(--text);">Version {{ checklist.current_version }}</span>
+      </div>
+      <p class="text-muted" style="margin-bottom:0.75rem; font-size:0.85rem;">
+        This checklist is used for all projects that do not have a custom checklist assigned.
+        It is seeded from <code>prompts/ba_readiness_checklist.md</code> on first access.
+      </p>
+
+      <form method="post" action="/manage-projects/checklist/save">
+        <input type="hidden" name="target" value="default">
+        <textarea name="content" rows="28"
+          style="width:100%; font-family:monospace; font-size:0.85rem; padding:0.75rem; border:1px solid var(--border); border-radius:4px; resize:vertical; margin-bottom:0.75rem; white-space:pre;">{{ checklist.content }}</textarea>
+        <button type="submit" class="btn btn-primary">Save Checklist</button>
+      </form>
+    </div>
+
+    {% elif target and target != 'default' %}
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+        <h2 style="font-size:1.1rem; font-weight:600;">{{ target }} — Readiness Checklist</h2>
+        <span class="badge" style="background:#e2e8f0; color:var(--text);">
+          {% if checklist.current_version > 0 %}Version {{ checklist.current_version }}{% else %}No custom checklist yet{% endif %}
+        </span>
+      </div>
+      <p class="text-muted" style="margin-bottom:0.75rem; font-size:0.85rem;">
+        {% if checklist.current_version == 0 %}
+        This project uses the <strong>default checklist</strong>. Save content below to create a custom checklist for {{ target }}.
+        {% else %}
+        Custom checklist for <strong>{{ target }}</strong>. Saving will archive the current version.
+        {% endif %}
+      </p>
+
+      <form method="post" action="/manage-projects/checklist/save">
+        <input type="hidden" name="target" value="{{ target }}">
+        <textarea name="content" rows="28"
+          style="width:100%; font-family:monospace; font-size:0.85rem; padding:0.75rem; border:1px solid var(--border); border-radius:4px; resize:vertical; margin-bottom:0.75rem; white-space:pre;">{{ checklist.content }}</textarea>
+        <button type="submit" class="btn btn-primary">Save Checklist</button>
+      </form>
+
+      <!-- Delete checklist files -->
+      {% if checklist.current_version > 0 %}
+      <details style="margin-top:1.5rem;">
+        <summary style="cursor:pointer; color:var(--danger); font-size:0.85rem;">⚠ Delete Checklist Files</summary>
+        <div style="margin-top:0.75rem; padding:1rem; background:#fef2f2; border-radius:4px; border:1px solid #fca5a5;">
+          <p style="margin-bottom:0.75rem; font-size:0.9rem;">
+            This will permanently delete <strong>{{ target }}.md</strong> and all archived versions
+            (<strong>{{ history.versions | length }}</strong> version(s)). This action cannot be undone.
+          </p>
+          <form method="post" action="/manage-projects/checklist/delete-files"
+                onsubmit="return confirm('Permanently delete all checklist files for {{ target }}? This cannot be undone.')">
+            <input type="hidden" name="target" value="{{ target }}">
+            <button type="submit" class="btn btn-sm" style="background:var(--danger); color:#fff; border:none; cursor:pointer;">
+              Delete All Checklist Files for {{ target }}
+            </button>
+          </form>
+        </div>
+      </details>
+      {% endif %}
+    </div>
+
+    {% else %}
+    <div class="card">
+      <p class="text-muted">Select a project or the Default Checklist from the left panel.</p>
+    </div>
+    {% endif %}
+
+    <!-- Version history -->
+    {% if history and history.versions %}
+    <div class="card" style="margin-top:1rem;">
+      <details>
+        <summary style="cursor:pointer; font-weight:600; font-size:0.95rem;">
+          Version History ({{ history.versions | length }} archived version(s))
+        </summary>
+        <div style="margin-top:0.75rem;">
+          {% for v in history.versions | reverse %}
+          <div style="display:flex; align-items:center; gap:1rem; padding:0.5rem 0; border-bottom:1px solid var(--border);">
+            <span style="font-size:0.85rem; color:var(--muted); min-width:60px;">v{{ v.version }}</span>
+            <span style="font-size:0.85rem; flex:1;">{{ v.saved_at }}</span>
+            <details style="display:inline;">
+              <summary style="cursor:pointer; font-size:0.8rem; color:var(--primary);">Restore</summary>
+              <div style="margin-top:0.5rem; padding:0.75rem; background:#f0f9ff; border-radius:4px; border:1px solid #bae6fd;">
+                <p style="font-size:0.85rem; margin-bottom:0.5rem;">
+                  Restore v{{ v.version }} from {{ v.saved_at }}?
+                  The current content will be archived as the next version.
+                </p>
+                <form method="post" action="/manage-projects/checklist/restore">
+                  <input type="hidden" name="target" value="{{ target }}">
+                  <input type="hidden" name="version" value="{{ v.version }}">
+                  <button type="submit" class="btn btn-primary btn-sm">Confirm Restore</button>
+                </form>
+              </div>
+            </details>
+          </div>
+          {% endfor %}
+        </div>
+      </details>
+    </div>
+    {% endif %}
+
+  </div><!-- /main panel -->
+</div><!-- /flex layout -->
+{% endblock %}
