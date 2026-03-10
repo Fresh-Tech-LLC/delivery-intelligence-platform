@@ -279,6 +279,8 @@ class PulledJiraStory(BaseModel):
     components: list[str] = Field(default_factory=list)
     issue_type: str = ""
     last_pulled_at: str                                        # ISO datetime of last fetch
+    custom_fields: dict[str, str] = Field(default_factory=dict)
+    # key = label (e.g. "Epic Link"), value = extracted string (capped at 300 chars)
 
 
 # ---------------------------------------------------------------------------
@@ -291,6 +293,11 @@ class ManagedProject(BaseModel):
     jira_project_name: str = ""  # populated from Jira if available; empty if lookup fails
     has_custom_checklist: bool = False  # derived from file presence on load, not stored state
     created_at: str              # ISO datetime
+
+
+class FieldMapping(BaseModel):
+    field_id: str   # Jira field ID, e.g. "customfield_10014"
+    label: str      # Display name shown in UI and passed to LLM, e.g. "Epic Link"
 
 
 class ChecklistVersionInfo(BaseModel):

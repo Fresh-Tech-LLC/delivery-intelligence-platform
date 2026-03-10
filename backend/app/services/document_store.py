@@ -28,6 +28,7 @@ from backend.app.schemas import (
     ChecklistVersionContentResponse,
     ChecklistVersionInfo,
     DeleteChecklistResponse,
+    FieldMapping,
     ManagedProject,
     SessionWorkspace,
 )
@@ -97,8 +98,16 @@ class DocumentStore:
     def _checklists_dir(self) -> Path:
         return self._projects_dir / "checklists"
 
+    @property
+    def _fields_dir(self) -> Path:
+        return self._projects_dir / "fields"
+
     def _ensure_managed_projects_dirs(self) -> None:
         self._checklists_dir.mkdir(parents=True, exist_ok=True)
+        self._fields_dir.mkdir(parents=True, exist_ok=True)
+
+    def _field_config_path(self, key: str) -> Path:
+        return self._fields_dir / f"{key}.json"
 
     def _current_checklist_path(self, key: str | None) -> Path:
         stem = "default" if key is None else key
@@ -382,11 +391,44 @@ class DocumentStore:
             vf.unlink()
             deleted += 1
         logger.info("DocumentStore: deleted %d checklist file(s) for project %s", deleted, key)
+        # Note: field config JSON is intentionally NOT deleted here — independent lifecycle.
         return DeleteChecklistResponse(
             project_key=key,
             deleted_files=deleted,
             message=f"Deleted {deleted} checklist file(s) for project {key}.",
         )
+
+    # ------------------------------------------------------------------
+    # Custom field config
+    # ------------------------------------------------------------------
+
+    def load_field_config(self, key: str) -> list[FieldMapping]:
+        """Load custom field mappings for a project. Returns [] if no config file exists."""
+        self._ensure_managed_projects_dirs()
+        path = self._field_config_path(key)
+        if not path.exists():
+            return []
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            return [FieldMapping(**item) for item in raw]
+        except Exception as exc:
+            logger.warning("DocumentStore: failed to load field config for %s (%s)", key, exc)
+            return []
+
+    def save_field_config(self, key: str, mappings: list[FieldMapping]) -> None:
+        """Persist custom field mappings for a project."""
+        validate_project_key(key)
+        self._ensure_managed_projects_dirs()
+        data = [m.model_dump() for m in mappings]
+        _atomic_write(self._field_config_path(key), json.dumps(data, indent=2))
+        logger.info("DocumentStore: saved %d field mapping(s) for project %s", len(mappings), key)
+
+    def delete_field_config(self, key: str) -> None:
+        """Delete field config file for a project if it exists. Silent if absent."""
+        path = self._field_config_path(key)
+        if path.exists():
+            path.unlink()
+            logger.info("DocumentStore: deleted field config for project %s", key)
 
 
 def get_document_store() -> DocumentStore:

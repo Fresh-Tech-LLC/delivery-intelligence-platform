@@ -274,7 +274,7 @@ class BAAgent:
     # Existing Jira story flow
     # ------------------------------------------------------------------
 
-    def _pull_story_raw(self, jira_story_key: str) -> PulledJiraStory:
+    def _pull_story_raw(self, jira_story_key: str, jira_project_key: str = "") -> PulledJiraStory:
         """Fetch a Jira issue by key and normalize it to PulledJiraStory. No workspace touches."""
         if not self._jira:
             raise JiraError("Jira is not configured.")
@@ -312,6 +312,10 @@ class BAAgent:
                 return ""
             if isinstance(value, str):
                 return value
+            if isinstance(value, list):
+                # Multi-value custom fields (e.g. multi-select, multi-user)
+                parts = [_extract_string_field(v) or str(v) for v in value if v]
+                return ", ".join(p for p in parts if p)
             if isinstance(value, dict):
                 return _flatten_adf(value).strip()
             return str(value)
@@ -320,7 +324,14 @@ class BAAgent:
             if not f:
                 return ""
             if isinstance(f, dict):
-                return f.get("displayName") or f.get("name") or f.get("value") or ""
+                # key first: handles linked issue objects (e.g. Epic Link → {"key": "EPIC-42", ...})
+                return (
+                    f.get("key")
+                    or f.get("displayName")
+                    or f.get("name")
+                    or f.get("value")
+                    or ""
+                )
             return str(f)
 
         description = _to_text(fields.get("description", ""))
@@ -374,6 +385,26 @@ class BAAgent:
         labels = fields.get("labels") or []
         components = [_extract_string_field(c) for c in (fields.get("components") or [])]
 
+        # Custom fields: load per-project mapping config and extract each field.
+        # Extraction order follows field_config list order (preserved in insertion-order dict).
+        # Field config and checklist deletion are intentionally independent lifecycles.
+        custom_fields: dict[str, str] = {}
+        if jira_project_key:
+            field_config = self._store.load_field_config(jira_project_key)
+            for mapping in field_config:
+                raw_value = fields.get(mapping.field_id)
+                if raw_value is None:
+                    logger.debug(
+                        "Custom field %r not present in Jira response for %s",
+                        mapping.field_id, jira_story_key,
+                    )
+                    continue
+                extracted = _extract_string_field(raw_value)
+                if not extracted:
+                    extracted = _to_text(raw_value)  # fallback for ADF/plain text/list fields
+                if extracted:
+                    custom_fields[mapping.label] = extracted[:300]  # cap to keep prompts bounded
+
         return PulledJiraStory(
             key=raw.get("key", jira_story_key),
             summary=fields.get("summary", ""),
@@ -387,12 +418,13 @@ class BAAgent:
             components=components,
             issue_type=_extract_string_field(fields.get("issuetype")),
             last_pulled_at=datetime.now(timezone.utc).isoformat(),
+            custom_fields=custom_fields,
         )
 
     def pull_jira_story(self, session_id: str, jira_story_key: str) -> PulledJiraStory:
         """Fetch a Jira issue by key, normalize it, and persist to workspace."""
-        story = self._pull_story_raw(jira_story_key)
-        ws = self._store.load_workspace(session_id)
+        ws = self._store.load_workspace(session_id)  # load first to get jira_project_key
+        story = self._pull_story_raw(jira_story_key, jira_project_key=ws.jira_project_key)
         ws.jira_story_key = story.key
         ws.pulled_jira_story = story.model_dump()
         self._store.save_workspace(ws)
@@ -422,6 +454,12 @@ class BAAgent:
                 else story.ac_raw or "(none)"
             )
         )
+
+        if story.custom_fields:
+            custom_block = "\n".join(
+                f"{label}: {value}" for label, value in story.custom_fields.items()
+            )
+            story_text += f"\n\n## Custom Fields\n{custom_block}"
 
         messages = [
             {"role": "system", "content": system},
@@ -455,7 +493,7 @@ class BAAgent:
 
     def score_story(self, jira_story_key: str, jira_project_key: str) -> tuple[int, str]:
         """Pull story + run readiness check. No session workspace. Returns (score, summary)."""
-        story = self._pull_story_raw(jira_story_key)
+        story = self._pull_story_raw(jira_story_key, jira_project_key=jira_project_key)
         report = self._run_readiness_on_story(story, jira_project_key)
         return report.score, report.summary
 

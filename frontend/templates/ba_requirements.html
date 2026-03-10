@@ -103,6 +103,15 @@
     <p style="font-size:0.82rem; color:var(--muted); margin-bottom:0.35rem;">Components: {{ s_components | join(", ") }}</p>
     {% endif %}
 
+    {% set s_custom = story.custom_fields %}
+    {% if s_custom %}
+    <div style="margin-top:0.35rem; margin-bottom:0.35rem;">
+      {% for cf_label, cf_value in s_custom.items() %}
+      <p style="font-size:0.82rem; color:var(--muted); margin-bottom:0.2rem;"><strong>{{ cf_label }}:</strong> {{ cf_value }}</p>
+      {% endfor %}
+    </div>
+    {% endif %}
+
     {% set s_desc = (story.description if story is mapping else story.description) %}
     {% if s_desc %}
     <div style="margin-top:0.5rem;">
