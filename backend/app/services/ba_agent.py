@@ -482,9 +482,8 @@ class BAAgent:
             errors.append(f"Label update failed: {exc}")
 
         # Add comment (not deduplicated for POC)
-        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         comment_body = (
-            f"✅ Delivery Navigator readiness approved — Score: {report.score}/100 — {now_iso}"
+            f"✅ Delivery Navigator readiness approved — Score: {report.score}/100"
         )
         try:
             self._jira.add_comment(issue_key, comment_body)
