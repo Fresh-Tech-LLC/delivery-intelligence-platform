@@ -49,9 +49,14 @@ def validate_project_key(key: str) -> str:
 
 
 def _atomic_write(path: Path, content: str) -> None:
-    """Write to a temp file then atomically replace the target (near-atomic on Windows)."""
+    """Write to a temp file then atomically replace the target (near-atomic on Windows).
+
+    Normalises line endings to LF before writing so that browser-submitted
+    textarea content (which carries CRLF) does not accumulate extra blank lines
+    on repeated saves.
+    """
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(content, encoding="utf-8")
+    tmp.write_text(content.replace("\r\n", "\n").replace("\r", "\n"), encoding="utf-8", newline="")
     tmp.replace(path)
 
 
@@ -294,7 +299,7 @@ class DocumentStore:
         # Archive current, write new
         archive_version = self._next_version_number(key)
         archive_path = self._version_path(key, archive_version)
-        archive_path.write_text(current.read_text(encoding="utf-8"), encoding="utf-8")
+        _atomic_write(archive_path, current.read_text(encoding="utf-8"))
         _atomic_write(current, content)
         logger.info(
             "DocumentStore: saved checklist %s (archived v%d, new version %d)",

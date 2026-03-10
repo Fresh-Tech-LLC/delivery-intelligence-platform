@@ -4,7 +4,7 @@
 {% block content %}
 <div class="sub-nav">
   <a href="/ba/requirements">Requirements</a>
-  <a href="/ba/stories" class="active">Stories</a>
+  {% if workspace.ba_source != "existing_story" %}<a href="/ba/stories" class="active">Stories</a>{% endif %}
   <a href="/ba/readiness">Readiness</a>
 </div>
 

@@ -4,7 +4,7 @@
 {% block content %}
 <div class="sub-nav">
   <a href="/ba/requirements" class="active">Requirements</a>
-  <a href="/ba/stories">Stories</a>
+  {% if workspace.ba_source != "existing_story" %}<a href="/ba/stories">Stories</a>{% endif %}
   <a href="/ba/readiness">Readiness</a>
 </div>
 
@@ -130,7 +130,11 @@
     </div>
 
     <div class="mt-2">
-      <a href="/ba/readiness" class="btn btn-primary btn-sm">Run Readiness Check →</a>
+      <form method="post" action="/ba/readiness" style="display:inline;">
+        <input type="hidden" name="action" value="check" />
+        <input type="hidden" name="session_id" value="{{ session_id }}" />
+        <button type="submit" class="btn btn-primary btn-sm">Run Readiness Check →</button>
+      </form>
     </div>
   </div>
   {% endif %}
