@@ -105,9 +105,17 @@ async def ba_requirements_page(request: Request):
     sid = _get_or_create_session(request)
     store = get_document_store()
     ws = store.load_workspace(sid)
+    managed_projects = store.load_project_registry()
     response = templates.TemplateResponse(
         "ba_requirements.html",
-        {"request": request, "session_id": sid, "workspace": ws, "result": None, "error": None},
+        {
+            "request": request,
+            "session_id": sid,
+            "workspace": ws,
+            "managed_projects": managed_projects,
+            "result": None,
+            "error": None,
+        },
     )
     response.set_cookie("session_id", sid, httponly=True)
     return response
@@ -118,29 +126,66 @@ async def ba_requirements_post(
     request: Request,
     action: str = Form(...),
     session_id: str = Form(...),
+    jira_project_key: str = Form(""),
+    ba_source: str = Form("new"),
+    jira_story_key: str = Form(""),
     raw_notes: str = Form(""),
     edit_instruction: str = Form(""),
 ):
     store = get_document_store()
-    agent = BAAgent(llm=get_llm_client(), prompt_loader=get_prompt_loader(), store=store)
+    jira_client = get_jira_client()
+    agent = BAAgent(
+        llm=get_llm_client(),
+        prompt_loader=get_prompt_loader(),
+        store=store,
+        jira=jira_client if jira_client.is_configured() else None,
+    )
     result = None
+    pulled_story = None
     error = None
+
+    # Persist mode/project selection; handle state clearing on mode switch
+    ws = store.load_workspace(session_id)
+    ws.jira_project_key = jira_project_key.strip()
+    prev_source = ws.ba_source
+    ws.ba_source = ba_source if ba_source in ("new", "existing_story") else "new"
+    if ws.ba_source == "new" and prev_source == "existing_story":
+        ws.jira_story_key = ""
+        ws.pulled_jira_story = None
+        ws.readiness_report = None
+    elif ws.ba_source == "existing_story":
+        new_key = jira_story_key.strip()
+        if new_key and new_key != ws.jira_story_key:
+            ws.jira_story_key = new_key
+            ws.pulled_jira_story = None
+            ws.readiness_report = None
+    store.save_workspace(ws)
+
     try:
-        if action == "generate":
+        if action == "generate" and ws.ba_source == "new":
             result = agent.generate_requirements(session_id, raw_notes)
-        elif action == "update":
+        elif action == "update" and ws.ba_source == "new":
             result = agent.update_requirements(session_id, edit_instruction)
-    except (LLMError, ValueError, FileNotFoundError) as exc:
+        elif action == "pull_story":
+            key = ws.jira_story_key or jira_story_key.strip()
+            if not key:
+                error = "Enter a Jira story key (e.g. PROJ-123) before pulling."
+            else:
+                pulled_story = agent.pull_jira_story(session_id, key)
+    except (LLMError, ValueError, FileNotFoundError, JiraError) as exc:
         error = str(exc)
 
     ws = store.load_workspace(session_id)
+    managed_projects = store.load_project_registry()
     response = templates.TemplateResponse(
         "ba_requirements.html",
         {
             "request": request,
             "session_id": session_id,
             "workspace": ws,
+            "managed_projects": managed_projects,
             "result": result,
+            "pulled_story": pulled_story,
             "error": error,
             "submitted_raw_notes": raw_notes,
         },
@@ -203,7 +248,16 @@ async def ba_readiness_page(request: Request):
     ws = store.load_workspace(sid)
     response = templates.TemplateResponse(
         "readiness.html",
-        {"request": request, "session_id": sid, "workspace": ws, "result": None, "jira_result": None, "error": None},
+        {
+            "request": request,
+            "session_id": sid,
+            "workspace": ws,
+            "result": None,
+            "jira_result": None,
+            "approve_result": None,
+            "jira_configured": get_jira_client().is_configured(),
+            "error": None,
+        },
     )
     response.set_cookie("session_id", sid, httponly=True)
     return response
@@ -217,20 +271,36 @@ async def ba_readiness_post(
     dry_run: str = Form("true"),
 ):
     store = get_document_store()
-    agent = BAAgent(llm=get_llm_client(), prompt_loader=get_prompt_loader(), store=store)
+    jira_client = get_jira_client()
+    agent = BAAgent(
+        llm=get_llm_client(),
+        prompt_loader=get_prompt_loader(),
+        store=store,
+        jira=jira_client if jira_client.is_configured() else None,
+    )
     result = None
     jira_result = None
+    approve_result = None
     error = None
+    ws = store.load_workspace(session_id)
     try:
         if action == "check":
-            result = agent.check_readiness(session_id)
+            if ws.ba_source == "existing_story":
+                # Re-pull from Jira then run check
+                if ws.jira_story_key:
+                    agent.pull_jira_story(session_id, ws.jira_story_key)
+                result = agent.check_readiness_from_jira_story(session_id)
+            else:
+                result = agent.check_readiness(session_id)
+        elif action == "approve":
+            approve_result = agent.approve_jira_story(session_id)
         elif action in ("jira_dry", "jira_create"):
             from backend.app.schemas import JiraCreateRequest
             from backend.app.routers.jira import create_story_set
             is_dry = action == "jira_dry"
             req = JiraCreateRequest(session_id=session_id, dry_run=is_dry)
-            jira_result = await create_story_set(req, store=store, jira=get_jira_client())
-    except (LLMError, ValueError, FileNotFoundError) as exc:
+            jira_result = await create_story_set(req, store=store, jira=jira_client)
+    except (LLMError, ValueError, FileNotFoundError, JiraError) as exc:
         error = str(exc)
     except HTTPException as exc:
         error = exc.detail
@@ -244,6 +314,8 @@ async def ba_readiness_post(
             "workspace": ws,
             "result": result,
             "jira_result": jira_result,
+            "approve_result": approve_result,
+            "jira_configured": jira_client.is_configured(),
             "error": error,
         },
     )

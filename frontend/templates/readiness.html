@@ -14,23 +14,35 @@
 <div class="alert alert-error">{{ error }}</div>
 {% endif %}
 
-{% if not workspace.requirements_draft %}
+{% set is_existing = workspace.ba_source == "existing_story" %}
+
+{% if not is_existing and not workspace.requirements_draft %}
 <div class="alert alert-warning">No requirements found. <a href="/ba/requirements">Generate requirements first.</a></div>
+{% elif is_existing and not workspace.pulled_jira_story %}
+<div class="alert alert-warning">No story pulled. <a href="/ba/requirements">Go to Requirements and pull a Jira story first.</a></div>
 {% else %}
 
 <!-- Check button -->
 <div class="card">
   <p class="card-title">Run Readiness Check</p>
+  {% if is_existing %}
+  <p class="text-muted" style="margin-bottom:0.75rem;">
+    Re-pulls <strong>{{ workspace.jira_story_key }}</strong> from Jira, then checks completeness, clarity, AC quality, edge case coverage, and automation-friendliness against the project checklist.
+  </p>
+  {% else %}
   <p class="text-muted" style="margin-bottom:0.75rem;">Checks completeness, clarity, AC quality, edge case coverage, and automation-friendliness.</p>
+  {% endif %}
   <form method="post" action="/ba/readiness">
     <input type="hidden" name="action" value="check" />
     <input type="hidden" name="session_id" value="{{ session_id }}" />
-    <button type="submit" class="btn btn-primary">Run Readiness Check</button>
+    <button type="submit" class="btn btn-primary">
+      {% if is_existing %}Re-pull from Jira &amp; Run Check{% else %}Run Readiness Check{% endif %}
+    </button>
   </form>
 </div>
 
-<!-- Jira actions -->
-{% if workspace.story_set %}
+<!-- Jira create actions (new flow only) -->
+{% if not is_existing and workspace.story_set %}
 <div class="card">
   <p class="card-title">Create in Jira</p>
   <div class="flex gap-2" style="flex-wrap:wrap;">
@@ -90,6 +102,44 @@
   {% else %}
   <div class="alert alert-success">No findings — requirements look solid!</div>
   {% endif %}
+</div>
+
+<!-- ai-approved button (existing story mode, score >= 90, Jira configured) -->
+{% if is_existing and score >= 90 and workspace.jira_story_key and jira_configured %}
+<div class="card">
+  <p class="card-title">Approve Story in Jira</p>
+  <p class="text-muted" style="margin-bottom:0.75rem; font-size:0.9rem;">
+    Score is <strong>{{ score }}/100</strong> — this story meets the readiness threshold.
+    Stamping will add the <code>ai-approved</code> label and post an approval comment on <strong>{{ workspace.jira_story_key }}</strong>.
+  </p>
+  <form method="post" action="/ba/readiness">
+    <input type="hidden" name="action" value="approve" />
+    <input type="hidden" name="session_id" value="{{ session_id }}" />
+    <button type="submit" class="btn btn-primary"
+            onclick="return confirm('Stamp {{ workspace.jira_story_key }} as ai-approved in Jira?')">
+      ✅ Stamp as ai-approved in Jira
+    </button>
+  </form>
+</div>
+{% endif %}
+
+{% endif %}
+
+<!-- Approve result -->
+{% if approve_result %}
+<div class="card">
+  <p class="card-title">Approval Result — {{ approve_result.issue_key }}</p>
+  {% if approve_result.label_added %}
+  <div class="alert alert-success" style="margin-bottom:0.5rem;">Label <code>ai-approved</code> added successfully.</div>
+  {% else %}
+  <div class="alert alert-info" style="margin-bottom:0.5rem;">Label <code>ai-approved</code> was already present — not added again.</div>
+  {% endif %}
+  {% if approve_result.comment_added %}
+  <div class="alert alert-success" style="margin-bottom:0.5rem;">Approval comment added.</div>
+  {% endif %}
+  {% for err in approve_result.errors %}
+  <div class="alert alert-error" style="margin-bottom:0.5rem;">{{ err }}</div>
+  {% endfor %}
 </div>
 {% endif %}
 

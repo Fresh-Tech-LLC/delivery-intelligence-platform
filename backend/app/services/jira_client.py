@@ -92,6 +92,24 @@ class JiraClient:
                 status_code=exc.response.status_code,
             ) from exc
 
+    def _put(self, path: str, body: dict[str, Any]) -> None:
+        url = f"{self._base}{path}"
+        safe_log_request("PUT", url, self._headers)
+        try:
+            with httpx.Client(
+                timeout=self._settings.jira_timeout,
+                verify=self._settings.jira_verify_ssl,
+            ) as client:
+                resp = client.put(url, headers=self._headers, json=body)
+            resp.raise_for_status()
+        except httpx.TimeoutException as exc:
+            raise JiraError(f"Jira request timed out: {exc}") from exc
+        except httpx.HTTPStatusError as exc:
+            raise JiraError(
+                f"Jira HTTP {exc.response.status_code}: {exc.response.text[:300]}",
+                status_code=exc.response.status_code,
+            ) from exc
+
     # ------------------------------------------------------------------
     # Discovery — global bootstrap
     # ------------------------------------------------------------------
@@ -255,6 +273,24 @@ class JiraClient:
 
     def get_issue(self, issue_key: str) -> dict[str, Any]:
         return self._get(f"/rest/api/2/issue/{issue_key}")
+
+    def update_issue_labels(self, issue_key: str, add_labels: list[str]) -> None:
+        """Add labels to an issue using the Jira update/add operation.
+
+        Uses the non-destructive add operation — does not require fetching
+        current labels first and does not overwrite existing labels.
+        Raises JiraError on failure (including permission errors).
+        """
+        body = {"update": {"labels": [{"add": label} for label in add_labels]}}
+        self._put(f"/rest/api/2/issue/{issue_key}", body)
+
+    def add_comment(self, issue_key: str, body: str) -> dict[str, Any]:
+        """Add a plain-text comment to an issue.
+
+        POST /rest/api/2/issue/{key}/comment
+        Raises JiraError on failure.
+        """
+        return self._post(f"/rest/api/2/issue/{issue_key}/comment", {"body": body})
 
     def is_configured(self) -> bool:
         s = self._settings

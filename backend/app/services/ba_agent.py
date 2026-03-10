@@ -3,14 +3,18 @@ BA Agent — orchestrates the full BA workflow:
   - Requirements generation & update
   - Story set generation & update (strict JSON)
   - Readiness checks
+  - Pull existing Jira story + readiness check against it
+  - Approve Jira story with ai-approved label + comment
 """
 from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from datetime import datetime, timezone
+from typing import Any, Optional
 
 from backend.app.schemas import (
+    PulledJiraStory,
     ReadinessFinding,
     ReadinessReport,
     RequirementsResponse,
@@ -19,6 +23,7 @@ from backend.app.schemas import (
     StorySet,
 )
 from backend.app.services.document_store import DocumentStore
+from backend.app.services.jira_client import JiraClient, JiraError
 from backend.app.services.llm_client import LLMClient
 from backend.app.services.prompt_loader import PromptLoader
 
@@ -31,10 +36,12 @@ class BAAgent:
         llm: LLMClient,
         prompt_loader: PromptLoader,
         store: DocumentStore,
+        jira: Optional[JiraClient] = None,
     ) -> None:
         self._llm = llm
         self._pl = prompt_loader
         self._store = store
+        self._jira = jira
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -61,9 +68,9 @@ class BAAgent:
             base += f"\n\n---\n## Internal BA Checklist (not shown to user)\n{checklist}"
         return base
 
-    def _system_readiness(self, session_id: str) -> str:
+    def _system_readiness(self, session_id: str, jira_project_key: str = "") -> str:
         checklist = self._hidden_checklist()
-        base = self._pl.load_prompt("ba_readiness_checklist.md")
+        base = self._store.resolve_checklist(jira_project_key)
         uploaded = self._store.load_all_docs_text(session_id)
         if checklist:
             base += f"\n\n---\n## Internal BA Checklist\n{checklist}"
@@ -238,7 +245,7 @@ class BAAgent:
         if not ws.requirements_draft:
             raise ValueError("No requirements draft found.")
 
-        system = self._system_readiness(session_id)
+        system = self._system_readiness(session_id, ws.jira_project_key)
         story_context = (
             json.dumps(ws.story_set, indent=2) if ws.story_set else "Not yet generated."
         )
@@ -262,3 +269,216 @@ class BAAgent:
         ws.readiness_report = report.model_dump()
         self._store.save_workspace(ws)
         return ReadinessResponse(session_id=session_id, report=report)
+
+    # ------------------------------------------------------------------
+    # Existing Jira story flow
+    # ------------------------------------------------------------------
+
+    def pull_jira_story(self, session_id: str, jira_story_key: str) -> PulledJiraStory:
+        """Fetch a Jira issue by key and normalize it to PulledJiraStory."""
+        if not self._jira:
+            raise JiraError("Jira is not configured.")
+
+        raw = self._jira.get_issue(jira_story_key)
+        fields = raw.get("fields", {})
+
+        def _flatten_adf(node: Any) -> str:
+            """Recursively flatten Atlassian Document Format to plain text."""
+            if isinstance(node, str):
+                return node
+            if isinstance(node, dict):
+                t = node.get("type", "")
+                children = node.get("content", [])
+                text = node.get("text", "")
+                parts = [_flatten_adf(c) for c in children]
+                inner = "".join(parts) if parts else text
+                if t in ("paragraph", "heading"):
+                    return inner + "\n"
+                if t in ("listItem",):
+                    return "- " + inner
+                if t in ("bulletList", "orderedList"):
+                    return inner + "\n"
+                return inner
+            if isinstance(node, list):
+                return "".join(_flatten_adf(c) for c in node)
+            return ""
+
+        def _to_text(value: Any) -> str:
+            if not value:
+                return ""
+            if isinstance(value, str):
+                return value
+            if isinstance(value, dict):
+                return _flatten_adf(value).strip()
+            return str(value)
+
+        def _extract_string_field(f: Any) -> str:
+            if not f:
+                return ""
+            if isinstance(f, dict):
+                return f.get("displayName") or f.get("name") or f.get("value") or ""
+            return str(f)
+
+        description = _to_text(fields.get("description", ""))
+
+        # Acceptance criteria: try dedicated custom field first, then description section
+        ac_raw = ""
+        acceptance_criteria: list[str] = []
+        ac_field_names = {"acceptance_criteria", "acceptancecriteria", "acceptanceCriteria"}
+        for fname, fval in fields.items():
+            if fname.lower().replace("_", "").replace("-", "") in {
+                k.lower().replace("_", "").replace("-", "") for k in ac_field_names
+            }:
+                ac_raw = _to_text(fval)
+                break
+
+        if ac_raw:
+            acceptance_criteria = [
+                line.lstrip("-*•123456789. ").strip()
+                for line in ac_raw.splitlines()
+                if line.strip() and not line.strip().startswith("#")
+            ]
+        else:
+            # Fallback: look for "Acceptance Criteria" / "AC:" section in description
+            import re
+            ac_match = re.search(
+                r"(?:#+\s*)?(?:acceptance criteria|AC\s*:)\s*\n(.*?)(?=\n#+|\Z)",
+                description,
+                re.IGNORECASE | re.DOTALL,
+            )
+            if ac_match:
+                block = ac_match.group(1)
+                acceptance_criteria = [
+                    line.lstrip("-*•123456789. ").strip()
+                    for line in block.strip().splitlines()
+                    if line.strip()
+                ]
+                ac_raw = block.strip()
+
+        labels = fields.get("labels") or []
+        components = [_extract_string_field(c) for c in (fields.get("components") or [])]
+
+        story = PulledJiraStory(
+            key=raw.get("key", jira_story_key),
+            summary=fields.get("summary", ""),
+            description=description,
+            acceptance_criteria=acceptance_criteria,
+            ac_raw=ac_raw,
+            status=_extract_string_field(fields.get("status")),
+            priority=_extract_string_field(fields.get("priority")),
+            assignee=_extract_string_field(fields.get("assignee")),
+            labels=labels,
+            components=components,
+            issue_type=_extract_string_field(fields.get("issuetype")),
+            last_pulled_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+        ws = self._store.load_workspace(session_id)
+        ws.jira_story_key = story.key
+        ws.pulled_jira_story = story.model_dump()
+        self._store.save_workspace(ws)
+        return story
+
+    def check_readiness_from_jira_story(self, session_id: str) -> "ReadinessResponse":
+        """Run a readiness check against the pulled Jira story stored in the workspace."""
+        from backend.app.schemas import ReadinessResponse
+
+        ws = self._store.load_workspace(session_id)
+        if not ws.pulled_jira_story:
+            raise ValueError("No pulled Jira story in workspace. Pull a story first.")
+
+        story = PulledJiraStory(**ws.pulled_jira_story)
+        system = self._system_readiness(session_id, ws.jira_project_key)
+        schema_hint = json.dumps(ReadinessReport.model_json_schema(), indent=2)
+
+        story_text = (
+            f"Key: {story.key}\n"
+            f"Issue Type: {story.issue_type}\n"
+            f"Status: {story.status}\n"
+            f"Priority: {story.priority}\n"
+            f"Assignee: {story.assignee}\n"
+            f"Labels: {', '.join(story.labels) if story.labels else 'none'}\n"
+            f"Components: {', '.join(story.components) if story.components else 'none'}\n\n"
+            f"## Summary\n{story.summary}\n\n"
+            f"## Description\n{story.description or '(none)'}\n\n"
+            f"## Acceptance Criteria\n"
+            + (
+                "\n".join(f"- {ac}" for ac in story.acceptance_criteria)
+                if story.acceptance_criteria
+                else story.ac_raw or "(none)"
+            )
+        )
+
+        messages = [
+            {"role": "system", "content": system},
+            {
+                "role": "user",
+                "content": (
+                    "Run a readiness check on the following Jira story.\n"
+                    "Output ONLY valid JSON matching this schema:\n"
+                    f"{schema_hint}\n\n"
+                    f"## Jira Story\n{story_text}"
+                ),
+            },
+        ]
+        data = self._llm.chat_json(messages, temperature=0.1)
+        report = ReadinessReport(**data)
+
+        ws.readiness_report = report.model_dump()
+        self._store.save_workspace(ws)
+        return ReadinessResponse(session_id=session_id, report=report)
+
+    def approve_jira_story(self, session_id: str) -> dict[str, Any]:
+        """Stamp an existing Jira story as ai-approved (label + comment).
+
+        Guards: story key must be set, readiness report must exist with score >= 90.
+        Label add is idempotent; comments are not deduplicated.
+        Returns: {"issue_key", "label_added", "comment_added", "errors"}
+        """
+        if not self._jira:
+            raise JiraError("Jira is not configured.")
+
+        ws = self._store.load_workspace(session_id)
+        if not ws.jira_story_key:
+            raise ValueError("No Jira story key in workspace. Pull a story first.")
+        if not ws.readiness_report:
+            raise ValueError("No readiness report found. Run a readiness check first.")
+
+        report = ReadinessReport(**ws.readiness_report)
+        if report.score < 90:
+            raise ValueError(
+                f"Readiness score {report.score}/100 is below the required threshold of 90."
+            )
+
+        issue_key = ws.jira_story_key
+        errors: list[str] = []
+        label_added = False
+        comment_added = False
+
+        # Check if label already present
+        try:
+            current = self._jira.get_issue(issue_key)
+            existing_labels = current.get("fields", {}).get("labels") or []
+            if "ai-approved" not in existing_labels:
+                self._jira.update_issue_labels(issue_key, ["ai-approved"])
+                label_added = True
+        except JiraError as exc:
+            errors.append(f"Label update failed: {exc}")
+
+        # Add comment (not deduplicated for POC)
+        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        comment_body = (
+            f"✅ Delivery Navigator readiness approved — Score: {report.score}/100 — {now_iso}"
+        )
+        try:
+            self._jira.add_comment(issue_key, comment_body)
+            comment_added = True
+        except JiraError as exc:
+            errors.append(f"Comment failed: {exc}")
+
+        return {
+            "issue_key": issue_key,
+            "label_added": label_added,
+            "comment_added": comment_added,
+            "errors": errors,
+        }

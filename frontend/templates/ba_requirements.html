@@ -14,12 +14,139 @@
 <div class="alert alert-error">{{ error }}</div>
 {% endif %}
 
+<!-- Project + source mode selector (shared, always visible) -->
+<div class="card">
+  <p class="card-title">Project &amp; Source</p>
+  <form method="post" action="/ba/requirements" id="mode-form">
+    <input type="hidden" name="session_id" value="{{ session_id }}" />
+    <input type="hidden" name="action" value="set_mode" />
+
+    <div class="form-group" style="margin-bottom:0.75rem;">
+      <label for="jira_project_key" style="font-size:0.85rem; color:var(--muted);">Jira Project Key</label>
+      <input list="managed-projects-list" id="jira_project_key" name="jira_project_key"
+             placeholder="e.g. PROJ"
+             value="{{ workspace.jira_project_key }}"
+             style="width:100%; padding:0.4rem 0.6rem; border:1px solid var(--border); border-radius:4px; font-size:0.9rem; margin-top:0.25rem;" />
+      <datalist id="managed-projects-list">
+        {% for p in managed_projects %}
+        <option value="{{ p.jira_project_key }}">{% if p.jira_project_name %}{{ p.jira_project_name }}{% endif %}</option>
+        {% endfor %}
+      </datalist>
+      <p class="text-muted" style="font-size:0.78rem; margin-top:0.25rem;">Used to resolve the project's custom readiness checklist. Optional — falls back to default.</p>
+    </div>
+
+    <fieldset style="border:1px solid var(--border); border-radius:4px; padding:0.6rem 0.75rem; margin-bottom:0.5rem;">
+      <legend style="font-size:0.85rem; color:var(--muted); padding:0 0.25rem;">Source</legend>
+      <label style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.35rem; cursor:pointer;">
+        <input type="radio" name="ba_source" value="new" id="src-new"
+               {% if workspace.ba_source != "existing_story" %}checked{% endif %}
+               onchange="document.getElementById('existing-story-section').style.display='none';">
+        Help get requirements into Jira
+      </label>
+      <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+        <input type="radio" name="ba_source" value="existing_story" id="src-existing"
+               {% if workspace.ba_source == "existing_story" %}checked{% endif %}
+               onchange="document.getElementById('existing-story-section').style.display='block';">
+        Work on existing Jira Story
+      </label>
+    </fieldset>
+  </form>
+</div>
+
+<!-- Existing story section -->
+<div id="existing-story-section" {% if workspace.ba_source != "existing_story" %}style="display:none;"{% endif %}>
+  <div class="card">
+    <p class="card-title">Pull Existing Story from Jira</p>
+    <form method="post" action="/ba/requirements">
+      <input type="hidden" name="session_id" value="{{ session_id }}" />
+      <input type="hidden" name="action" value="pull_story" />
+      <input type="hidden" name="ba_source" value="existing_story" />
+      <input type="hidden" name="jira_project_key" id="hidden-project-key" value="{{ workspace.jira_project_key }}" />
+      <div class="form-row" style="align-items:flex-end; gap:0.75rem;">
+        <div style="flex:1;">
+          <label for="jira_story_key" style="font-size:0.85rem; color:var(--muted);">Story Key</label>
+          <input type="text" id="jira_story_key" name="jira_story_key"
+                 placeholder="e.g. PROJ-123"
+                 value="{{ workspace.jira_story_key }}"
+                 style="width:100%; padding:0.4rem 0.6rem; border:1px solid var(--border); border-radius:4px; font-size:0.9rem; margin-top:0.25rem;" />
+        </div>
+        <button type="submit" class="btn btn-primary" style="white-space:nowrap;">Pull Story from Jira</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Pulled story card -->
+  {% set story = pulled_story if pulled_story else (workspace.pulled_jira_story if workspace.pulled_jira_story else none) %}
+  {% if story %}
+  <div class="card">
+    <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:0.75rem;">
+      <span class="badge" style="background:#dbeafe; color:#1e40af; font-size:0.9rem; font-weight:700;">{{ story.key if story is mapping else story.key }}</span>
+      <span style="font-weight:600;">{{ story.summary if story is mapping else story.summary }}</span>
+    </div>
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.75rem;">
+      {% set s_type = (story.issue_type if story is mapping else story.issue_type) %}
+      {% set s_status = (story.status if story is mapping else story.status) %}
+      {% set s_priority = (story.priority if story is mapping else story.priority) %}
+      {% set s_assignee = (story.assignee if story is mapping else story.assignee) %}
+      {% if s_type %}<span class="badge badge-category">{{ s_type }}</span>{% endif %}
+      {% if s_status %}<span class="badge" style="background:#f0fdf4; color:#166534;">{{ s_status }}</span>{% endif %}
+      {% if s_priority %}<span class="badge" style="background:#fefce8; color:#854d0e;">{{ s_priority }}</span>{% endif %}
+      {% if s_assignee %}<span class="text-muted" style="font-size:0.82rem;">Assignee: {{ s_assignee }}</span>{% endif %}
+    </div>
+
+    {% set s_labels = (story.labels if story is mapping else story.labels) %}
+    {% set s_components = (story.components if story is mapping else story.components) %}
+    {% if s_labels %}
+    <p style="font-size:0.82rem; color:var(--muted); margin-bottom:0.35rem;">Labels: {{ s_labels | join(", ") }}</p>
+    {% endif %}
+    {% if s_components %}
+    <p style="font-size:0.82rem; color:var(--muted); margin-bottom:0.35rem;">Components: {{ s_components | join(", ") }}</p>
+    {% endif %}
+
+    {% set s_desc = (story.description if story is mapping else story.description) %}
+    {% if s_desc %}
+    <details style="margin-top:0.5rem;">
+      <summary style="cursor:pointer; font-size:0.85rem; color:var(--primary);">Description</summary>
+      <div style="margin-top:0.5rem; white-space:pre-wrap; font-size:0.85rem; color:var(--text); background:#f8fafc; border-radius:4px; padding:0.75rem;">{{ s_desc }}</div>
+    </details>
+    {% endif %}
+
+    {% set s_ac = (story.acceptance_criteria if story is mapping else story.acceptance_criteria) %}
+    {% set s_ac_raw = (story.ac_raw if story is mapping else story.ac_raw) %}
+    <div style="margin-top:0.75rem;">
+      <p style="font-size:0.85rem; font-weight:600; margin-bottom:0.35rem;">Acceptance Criteria</p>
+      {% if s_ac %}
+      <ul style="padding-left:1.25rem; font-size:0.85rem; margin:0;">
+        {% for ac in s_ac %}<li>{{ ac }}</li>{% endfor %}
+      </ul>
+      {% elif s_ac_raw %}
+      <div class="alert alert-warning" style="font-size:0.82rem; margin-bottom:0.35rem;">
+        Acceptance criteria could not be parsed — original field shown below.
+      </div>
+      <div style="white-space:pre-wrap; font-size:0.82rem; background:#f8fafc; border-radius:4px; padding:0.5rem;">{{ s_ac_raw }}</div>
+      {% else %}
+      <p class="text-muted" style="font-size:0.82rem;">(none found)</p>
+      {% endif %}
+    </div>
+
+    <div class="mt-2">
+      <a href="/ba/readiness" class="btn btn-primary btn-sm">Run Readiness Check →</a>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- New requirements flow (hidden when existing_story mode) -->
+<div id="new-requirements-section" {% if workspace.ba_source == "existing_story" %}style="display:none;"{% endif %}>
+
 <!-- Generate form -->
 <div class="card">
   <p class="card-title">Generate Requirements from Raw Notes</p>
   <form method="post" action="/ba/requirements">
     <input type="hidden" name="action" value="generate" />
     <input type="hidden" name="session_id" value="{{ session_id }}" />
+    <input type="hidden" name="ba_source" value="new" />
+    <input type="hidden" name="jira_project_key" class="copy-project-key" value="{{ workspace.jira_project_key }}" />
     <div class="form-group">
       <label for="raw_notes">Raw Notes</label>
       <textarea id="raw_notes" name="raw_notes" class="notes" placeholder="Paste your raw notes, meeting summaries, or rough ideas here...">{{ submitted_raw_notes if submitted_raw_notes is defined and submitted_raw_notes else workspace.raw_notes }}</textarea>
@@ -35,6 +162,8 @@
   <form method="post" action="/ba/requirements">
     <input type="hidden" name="action" value="update" />
     <input type="hidden" name="session_id" value="{{ session_id }}" />
+    <input type="hidden" name="ba_source" value="new" />
+    <input type="hidden" name="jira_project_key" class="copy-project-key" value="{{ workspace.jira_project_key }}" />
     <div class="form-group">
       <label for="edit_instruction">Edit Instruction</label>
       <textarea id="edit_instruction" name="edit_instruction" class="small" placeholder='e.g. "Add an edge case for refunds." or "Split the payment section into two separate requirements."'></textarea>
@@ -116,5 +245,35 @@
   </div>
 </div>
 {% endif %}
+
+</div><!-- /new-requirements-section -->
+
+<script>
+// Keep hidden project-key inputs in sync with the visible input
+(function() {
+  var pkInput = document.getElementById('jira_project_key');
+  var hiddenPK = document.getElementById('hidden-project-key');
+  var copyPKs = document.querySelectorAll('.copy-project-key');
+  if (pkInput) {
+    pkInput.addEventListener('input', function() {
+      if (hiddenPK) hiddenPK.value = pkInput.value;
+      copyPKs.forEach(function(el) { el.value = pkInput.value; });
+    });
+  }
+  // Toggle sections when radio changes
+  var srcNew = document.getElementById('src-new');
+  var srcExisting = document.getElementById('src-existing');
+  var existingSection = document.getElementById('existing-story-section');
+  var newSection = document.getElementById('new-requirements-section');
+  if (srcNew && srcExisting) {
+    srcNew.addEventListener('change', function() {
+      if (this.checked) { existingSection.style.display='none'; newSection.style.display=''; }
+    });
+    srcExisting.addEventListener('change', function() {
+      if (this.checked) { existingSection.style.display=''; newSection.style.display='none'; }
+    });
+  }
+})();
+</script>
 
 {% endblock %}
