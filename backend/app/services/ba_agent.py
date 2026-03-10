@@ -279,8 +279,12 @@ class BAAgent:
         if not self._jira:
             raise JiraError("Jira is not configured.")
 
-        raw = self._jira.get_issue(jira_story_key)
+        raw = self._jira.get_issue(jira_story_key, expand="names")
         fields = raw.get("fields", {})
+        # names dict maps field ID → display name (only present when expand=names)
+        field_id_by_name: dict[str, str] = {
+            v.lower(): k for k, v in (raw.get("names") or {}).items()
+        }
 
         def _flatten_adf(node: Any) -> str:
             """Recursively flatten Atlassian Document Format to plain text."""
@@ -321,16 +325,28 @@ class BAAgent:
 
         description = _to_text(fields.get("description", ""))
 
-        # Acceptance criteria: try dedicated custom field first, then description section
+        # Acceptance criteria: try dedicated custom field first, then description section.
+        # Strategy 1: use expand=names reverse-lookup to find the field ID by display name.
+        # Strategy 2: fall back to matching field keys directly against known name patterns.
         ac_raw = ""
         acceptance_criteria: list[str] = []
-        ac_field_names = {"acceptance_criteria", "acceptancecriteria", "acceptanceCriteria"}
-        for fname, fval in fields.items():
-            if fname.lower().replace("_", "").replace("-", "") in {
-                k.lower().replace("_", "").replace("-", "") for k in ac_field_names
+        _ac_display_names = {"acceptance criteria", "acceptance_criteria", "acceptancecriteria"}
+        ac_field_id: Optional[str] = None
+        for display_name_lower, fid in field_id_by_name.items():
+            if display_name_lower.replace("_", "").replace(" ", "").replace("-", "") in {
+                n.replace("_", "").replace(" ", "").replace("-", "") for n in _ac_display_names
             }:
-                ac_raw = _to_text(fval)
+                ac_field_id = fid
                 break
+        if ac_field_id and ac_field_id in fields:
+            ac_raw = _to_text(fields[ac_field_id])
+        else:
+            # Fallback: match field key directly (works if key itself contains "acceptancecriteria")
+            _ac_key_patterns = {"acceptancecriteria", "acceptancecriteria"}
+            for fname, fval in fields.items():
+                if fname.lower().replace("_", "").replace("-", "") in _ac_key_patterns:
+                    ac_raw = _to_text(fval)
+                    break
 
         if ac_raw:
             acceptance_criteria = [

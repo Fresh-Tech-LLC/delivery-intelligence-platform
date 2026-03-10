@@ -271,8 +271,9 @@ class JiraClient:
                 return self._search_v3_jql(jql, max_results, fields)
             raise
 
-    def get_issue(self, issue_key: str) -> dict[str, Any]:
-        return self._get(f"/rest/api/2/issue/{issue_key}")
+    def get_issue(self, issue_key: str, expand: Optional[str] = None) -> dict[str, Any]:
+        params = {"expand": expand} if expand else None
+        return self._get(f"/rest/api/2/issue/{issue_key}", params=params)
 
     def update_issue_labels(self, issue_key: str, add_labels: list[str]) -> None:
         """Add labels to an issue using the Jira update/add operation.
