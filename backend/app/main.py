@@ -1,5 +1,5 @@
 """
-Delivery Navigator — FastAPI application with Jinja2 server-rendered UI.
+Delivery Intelligence Platform — FastAPI application with Jinja2 server-rendered UI.
 """
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 settings = get_settings()
 
-app = FastAPI(title="Delivery Navigator", version="1.0.0")
+app = FastAPI(title="Delivery Intelligence Platform", version="1.0.0")
 
 _base = Path(__file__).resolve().parent.parent.parent  # repo root
 

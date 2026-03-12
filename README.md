@@ -1,4 +1,4 @@
-# Project Delivery Copilot — Phase 1 MVP
+# Delivery Intelligence Platform — Phase 1 MVP
 
 An agentic workflow assistant for Business Analysts and Project Managers.
 
@@ -12,8 +12,8 @@ An agentic workflow assistant for Business Analysts and Project Managers.
 ### 1. Clone & set up Python environment
 
 ```bash
-git clone https://github.com/wesley-jones/project-copilot.git
-cd project-copilot
+git clone https://github.com/Fresh-Tech-LLC/delivery-intelligence-platform.git
+cd delivery-intelligence-platform
 
 python -m venv .venv
 

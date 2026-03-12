@@ -536,7 +536,7 @@ class BAAgent:
 
         # Add comment (not deduplicated for POC)
         comment_body = (
-            f"✅ Delivery Navigator readiness approved — Score: {report.score}/100"
+            f"✅ Delivery Intelligence Platform readiness approved — Score: {report.score}/100"
         )
         try:
             self._jira.add_comment(issue_key, comment_body)
