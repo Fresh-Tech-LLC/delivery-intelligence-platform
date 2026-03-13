@@ -3,7 +3,7 @@
 {% block content %}
 <div class="card">
   <div class="card-title">Requirements Studio</div>
-  <p>Create a feature workspace, assemble a context pack, and generate inspectable requirements and backlog drafts.</p>
+  <p>Create a feature workspace, assemble a context pack, pin evidence, generate requirements, review what still needs human input, and prepare a backlog draft for export.</p>
 </div>
 
 <div class="card">
@@ -28,23 +28,27 @@
 
 <div class="card">
   <div class="card-title">Existing Workspaces</div>
-  {% if workspaces %}
+  {% if workspace_rows %}
   <table>
     <thead>
       <tr>
         <th>Workspace</th>
         <th>Project</th>
         <th>Status</th>
+        <th>Progress</th>
+        <th>Next Step</th>
         <th>Updated</th>
       </tr>
     </thead>
     <tbody>
-      {% for workspace in workspaces %}
+      {% for row in workspace_rows %}
       <tr>
-        <td><a href="/requirements/workspaces/{{ workspace.workspace_id }}">{{ workspace.title }}</a></td>
-        <td>{{ workspace.project_key or "—" }}</td>
-        <td>{{ workspace.status.value }}</td>
-        <td>{{ workspace.updated_at }}</td>
+        <td><a href="/requirements/workspaces/{{ row.workspace.workspace_id }}">{{ row.workspace.title }}</a></td>
+        <td>{{ row.workspace.project_key or "—" }}</td>
+        <td>{{ row.workspace.status.value }}</td>
+        <td>{{ row.workflow.progress_percent }}%</td>
+        <td>{{ row.workflow.recommended_next_action }}</td>
+        <td>{{ row.workspace.updated_at }}</td>
       </tr>
       {% endfor %}
     </tbody>

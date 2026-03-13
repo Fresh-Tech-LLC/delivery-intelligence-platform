@@ -1,0 +1,69 @@
+<div class="card">
+  <div class="card-title">Backlog Draft</div>
+  <p class="text-muted">This draft is for future Jira publishing. Direct publish is not implemented yet.</p>
+  <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/generate-backlog" class="inline-form mt-1">
+    <input type="text" name="split_mode" value="{{ backlog_draft.split_mode if backlog_draft else '' }}" placeholder="balanced | coarse | detailed" />
+    <button class="btn btn-success" type="submit">Generate Backlog</button>
+  </form>
+
+  {% if backlog_draft %}
+  <div class="meta-row mt-2">
+    <span class="tag">split mode {{ backlog_draft.split_mode }}</span>
+    <span class="tag">{{ backlog_draft.items|length }} items</span>
+  </div>
+  {% for group_name, items in backlog_groups %}
+  <h4 class="section-title mt-2">{{ group_name|title }} Items</h4>
+    {% for item in items %}
+    <div class="story-card">
+      <div class="story-card-header">
+        <h4>{{ item.item_id }} · {{ item.title }}</h4>
+        <span class="tag">{{ item.item_type.value }}</span>
+      </div>
+      <p>{{ item.description }}</p>
+      <div class="requirements-grid">
+        <div>
+          <strong>Acceptance Criteria</strong>
+          <ul class="ac-list">
+            {% for entry in item.acceptance_criteria %}<li>{{ entry }}</li>{% else %}<li>No acceptance criteria listed.</li>{% endfor %}
+          </ul>
+        </div>
+        <div>
+          <strong>Dependencies</strong>
+          <ul class="ac-list">
+            {% for entry in item.dependencies %}<li>{{ entry }}</li>{% else %}<li>No dependencies listed.</li>{% endfor %}
+          </ul>
+        </div>
+      </div>
+      <div class="requirements-grid mt-1">
+        <div>
+          <strong>Labels / Team Hint</strong>
+          <div class="meta">
+            {% for label in item.labels %}<span class="tag">{{ label }}</span>{% else %}<span class="text-muted">No labels.</span>{% endfor %}
+          </div>
+          <div class="text-muted">{{ item.team_hint or "No team hint yet." }}</div>
+        </div>
+        <div>
+          <strong>Source Refs</strong>
+          <ul class="ac-list">
+            {% for entry in item.source_refs %}<li><code>{{ entry }}</code></li>{% else %}<li>No source refs listed.</li>{% endfor %}
+          </ul>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  {% endfor %}
+
+  <details class="mt-2">
+    <summary>Advanced JSON Editing</summary>
+    <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/backlog/save" class="mt-1">
+      <div class="form-group">
+        <label for="backlog_json">Backlog JSON</label>
+        <textarea id="backlog_json" name="backlog_json" class="notes">{{ backlog_json }}</textarea>
+      </div>
+      <button class="btn btn-secondary" type="submit">Save Backlog JSON</button>
+    </form>
+  </details>
+  {% else %}
+  <div class="alert alert-warning mt-2">Backlog draft not available yet.</div>
+  {% endif %}
+</div>

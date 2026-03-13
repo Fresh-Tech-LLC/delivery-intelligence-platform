@@ -1,0 +1,14 @@
+<div class="card">
+  <div class="card-title">Review / Export / Publish</div>
+  <div class="alert alert-info">Direct Jira publish is not implemented yet. Use these exports for review, copy/paste handoff, or later publishing workflows.</div>
+  <div class="workspace-actions mt-1">
+    <a class="btn btn-secondary" href="/requirements/workspaces/{{ workspace.workspace_id }}/export">Open Export View</a>
+    <a class="btn btn-secondary" href="/requirements/workspaces/{{ workspace.workspace_id }}/export/requirements.json">Download Requirements JSON</a>
+    <a class="btn btn-secondary" href="/requirements/workspaces/{{ workspace.workspace_id }}/export/backlog.json">Download Backlog JSON</a>
+    <a class="btn btn-secondary" href="/requirements/workspaces/{{ workspace.workspace_id }}/export/workspace.json">Download Combined Export</a>
+  </div>
+  <div class="result-box mt-2">
+    <strong>Next Intended Downstream Action</strong>
+    <div class="requirements-output">Review the requirements and backlog drafts with stakeholders, then use the export JSON for manual Jira publishing or downstream engineering handoff.</div>
+  </div>
+</div>

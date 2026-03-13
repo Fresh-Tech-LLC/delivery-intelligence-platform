@@ -24,6 +24,7 @@ from backend.app.services.requirements.models import (
     WorkspaceStatus,
 )
 from backend.app.services.requirements.requirements_generator import RequirementsGenerator
+from backend.app.services.requirements.workflow import WorkflowState, derive_workflow_state
 from backend.app.services.requirements.workspace_store import WorkspaceStore, get_workspace_store
 
 
@@ -62,6 +63,15 @@ class RequirementsService:
     def get_context_pack(self, workspace_id: str) -> ContextPack | None:
         return self._store.get_context_pack(workspace_id)
 
+    def get_workflow_state(self, workspace_id: str) -> WorkflowState:
+        workspace = self._require_workspace(workspace_id)
+        return derive_workflow_state(
+            workspace,
+            self.get_context_pack(workspace_id),
+            self.get_requirements_draft(workspace_id),
+            self.get_backlog_draft(workspace_id),
+        )
+
     def build_context_pack(self, workspace_id: str) -> ContextPack:
         workspace = self._require_workspace(workspace_id)
         context_pack = ContextPackBuilder(self._knowledge).build(workspace)
@@ -73,9 +83,15 @@ class RequirementsService:
         self._store.save_workspace(workspace)
         return context_pack
 
-    def pin_evidence(self, workspace_id: str, ref_id: str, rationale: str | None = None) -> FeatureWorkspace:
+    def pin_evidence(
+        self,
+        workspace_id: str,
+        ref_id: str,
+        rationale: str | None = None,
+        title: str | None = None,
+    ) -> FeatureWorkspace:
         workspace = self._require_workspace(workspace_id)
-        item = self._build_evidence_item(ref_id, rationale)
+        item = self._build_evidence_item(ref_id, rationale, title_override=title)
         if any(existing.evidence_id == item.evidence_id for existing in workspace.pinned_evidence):
             return workspace
         if len(workspace.pinned_evidence) >= self._settings.requirements_context_max_pinned_items:
@@ -156,23 +172,82 @@ class RequirementsService:
     def get_backlog_draft(self, workspace_id: str) -> BacklogDraft | None:
         return self._store.get_backlog_draft(workspace_id)
 
+    def update_review_fields(
+        self,
+        workspace_id: str,
+        *,
+        assumptions_text: str | None = None,
+        open_questions_text: str | None = None,
+        problem_statement: str | None = None,
+        business_outcome: str | None = None,
+        requirements_generation_notes: str | None = None,
+    ) -> tuple[FeatureWorkspace, RequirementsDraft | None]:
+        workspace = self._require_workspace(workspace_id)
+        requirements_draft = self.get_requirements_draft(workspace_id)
+
+        if assumptions_text is not None:
+            workspace.assumptions = self._split_lines(assumptions_text)
+        if open_questions_text is not None:
+            workspace.open_questions = self._split_lines(open_questions_text)
+        workspace.updated_at = datetime.now(timezone.utc)
+        self._store.save_workspace(workspace)
+
+        if requirements_draft is not None:
+            if problem_statement is not None:
+                requirements_draft.problem_statement = problem_statement.strip()
+            if business_outcome is not None:
+                requirements_draft.business_outcome = business_outcome.strip()
+            if requirements_generation_notes is not None:
+                requirements_draft.generation_notes = requirements_generation_notes.strip() or None
+            requirements_draft.assumptions = list(workspace.assumptions)
+            requirements_draft.open_questions = list(workspace.open_questions)
+            self._store.save_requirements_draft(requirements_draft)
+
+        return workspace, requirements_draft
+
+    def build_export_payload(self, workspace_id: str) -> dict[str, object]:
+        workspace = self._require_workspace(workspace_id)
+        context_pack = self.get_context_pack(workspace_id)
+        requirements_draft = self.get_requirements_draft(workspace_id)
+        backlog_draft = self.get_backlog_draft(workspace_id)
+        workflow = self.get_workflow_state(workspace_id)
+        return {
+            "workspace": workspace.model_dump(mode="json"),
+            "workflow": workflow.model_dump(mode="json"),
+            "context_pack": context_pack.model_dump(mode="json") if context_pack else None,
+            "requirements_draft": requirements_draft.model_dump(mode="json") if requirements_draft else None,
+            "backlog_draft": backlog_draft.model_dump(mode="json") if backlog_draft else None,
+            "export_notes": {
+                "jira_publish_available": False,
+                "message": "Direct Jira publish is intentionally deferred. Use these exports for review and handoff.",
+            },
+        }
+
     def _require_workspace(self, workspace_id: str) -> FeatureWorkspace:
         workspace = self.get_workspace(workspace_id)
         if workspace is None:
             raise ValueError(f"Workspace '{workspace_id}' not found.")
         return workspace
 
-    def _build_evidence_item(self, ref_id: str, rationale: str | None = None) -> WorkspaceEvidenceItem:
+    def _build_evidence_item(
+        self,
+        ref_id: str,
+        rationale: str | None = None,
+        title_override: str | None = None,
+    ) -> WorkspaceEvidenceItem:
         chunk = self._knowledge.get_chunk(ref_id)
         if isinstance(chunk, ChunkRecord):
             artifact = self._knowledge.get_artifact(chunk.artifact_id)
             if artifact is None:
                 raise ValueError(f"Chunk '{ref_id}' is missing its parent artifact.")
+            derived_title = title_override.strip() if title_override and title_override.strip() else (
+                f"{artifact.metadata.title} / chunk {chunk.chunk_index}"
+            )
             return WorkspaceEvidenceItem(
                 evidence_id=self._evidence_id(WorkspaceEvidenceType.CHUNK, ref_id),
                 evidence_type=WorkspaceEvidenceType.CHUNK,
                 ref_id=ref_id,
-                title=f"{artifact.metadata.title} / chunk {chunk.chunk_index}",
+                title=derived_title,
                 source_system=artifact.metadata.source_system.value,
                 artifact_kind=artifact.metadata.artifact_kind.value,
                 rationale=rationale,
@@ -185,11 +260,12 @@ class RequirementsService:
 
         artifact = self._knowledge.get_artifact(ref_id)
         if isinstance(artifact, ArtifactRecord):
+            derived_title = title_override.strip() if title_override and title_override.strip() else artifact.metadata.title
             return WorkspaceEvidenceItem(
                 evidence_id=self._evidence_id(WorkspaceEvidenceType.ARTIFACT, ref_id),
                 evidence_type=WorkspaceEvidenceType.ARTIFACT,
                 ref_id=ref_id,
-                title=artifact.metadata.title,
+                title=derived_title,
                 source_system=artifact.metadata.source_system.value,
                 artifact_kind=artifact.metadata.artifact_kind.value,
                 rationale=rationale,
@@ -209,6 +285,9 @@ class RequirementsService:
         if len(compact) > 180:
             return compact[:177] + "..."
         return compact
+
+    def _split_lines(self, value: str) -> list[str]:
+        return [line.strip() for line in value.splitlines() if line.strip()]
 
 
 @lru_cache

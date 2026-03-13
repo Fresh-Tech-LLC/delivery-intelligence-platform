@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{{ workspace.title }} · Export{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-title">Workspace Export</div>
+  <p>This export view is intended for review and downstream handoff. Direct Jira publish is not implemented yet.</p>
+  <div class="meta-row mt-1">
+    <span class="tag">{{ workflow.progress_percent }}% complete</span>
+    <span class="tag">current stage {{ workflow.current_stage.replace("_", " ") }}</span>
+  </div>
+  <div class="workspace-actions mt-2">
+    <a class="btn btn-secondary" href="/requirements/workspaces/{{ workspace.workspace_id }}">Back To Workspace</a>
+    <a class="btn btn-secondary" href="/requirements/workspaces/{{ workspace.workspace_id }}/export/requirements.json">Download Requirements JSON</a>
+    <a class="btn btn-secondary" href="/requirements/workspaces/{{ workspace.workspace_id }}/export/backlog.json">Download Backlog JSON</a>
+    <a class="btn btn-secondary" href="/requirements/workspaces/{{ workspace.workspace_id }}/export/workspace.json">Download Combined Export</a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Combined Export Preview</div>
+  <pre class="json-output">{{ export_payload_json }}</pre>
+</div>
+{% endblock %}

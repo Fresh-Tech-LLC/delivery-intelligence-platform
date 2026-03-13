@@ -1,0 +1,89 @@
+<div class="card">
+  <div class="card-title">Context Pack</div>
+  <p class="text-muted">Build or rebuild the context pack to ground this workspace in indexed chunks and related artifacts.</p>
+  <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/context-pack" class="mt-1">
+    <button class="btn btn-secondary" type="submit">Build / Rebuild Context Pack</button>
+  </form>
+
+  {% if context_pack %}
+  <div class="result-box">
+    <strong>Summary</strong>
+    <div class="requirements-output">{{ context_pack.summary_text }}</div>
+  </div>
+  <div class="meta-row mt-2">
+    <span class="tag">{{ context_pack.search_hits|length }} search hits</span>
+    <span class="tag">{{ context_pack.related_hits|length }} related hits</span>
+    <span class="tag">{{ context_pack.pinned_items|length }} pinned items</span>
+    <span class="tag">{{ context_pack.selected_source_refs|length }} source refs</span>
+  </div>
+
+  {% if context_pack.warnings %}
+  <div class="alert alert-warning mt-2">
+    {% for warning in context_pack.warnings %}
+    <div>{{ warning }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="requirements-grid mt-2">
+    <div>
+      <h4 class="section-title">Top Search Hits</h4>
+      {% if context_pack.search_hits %}
+        {% for hit in context_pack.search_hits[:6] %}
+        <div class="story-card">
+          <div class="story-card-header">
+            <strong>{{ hit.title }}</strong>
+            <span class="tag">score {{ "%.2f"|format(hit.score) }}</span>
+          </div>
+          <div><code>{{ hit.ref_id }}</code></div>
+          <div class="meta">{% if hit.source_system %}<span class="tag">{{ hit.source_system }}</span>{% endif %}{% if hit.artifact_kind %}<span class="tag">{{ hit.artifact_kind }}</span>{% endif %}</div>
+          <p>{{ hit.snippet }}</p>
+          <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/pin" class="inline-form mt-1">
+            <input type="hidden" name="ref_id" value="{{ hit.ref_id }}" />
+            <input type="hidden" name="title" value="{{ hit.title }}" />
+            <input type="hidden" name="rationale" value="Pinned from context pack search results." />
+            <button class="btn btn-secondary btn-sm" type="submit">Pin This Evidence</button>
+          </form>
+        </div>
+        {% endfor %}
+      {% else %}
+      <p>No context hits yet.</p>
+      {% endif %}
+    </div>
+
+    <div>
+      <h4 class="section-title">Top Related Artifacts</h4>
+      {% if context_pack.related_hits %}
+        {% for hit in context_pack.related_hits[:6] %}
+        <div class="story-card">
+          <div class="story-card-header">
+            <strong>{{ hit.title }}</strong>
+            <span class="tag">score {{ "%.2f"|format(hit.score) }}</span>
+          </div>
+          <div><code>{{ hit.ref_id }}</code></div>
+          <div class="meta">{% if hit.source_system %}<span class="tag">{{ hit.source_system }}</span>{% endif %}{% if hit.artifact_kind %}<span class="tag">{{ hit.artifact_kind }}</span>{% endif %}{% for edge_type in hit.edge_types %}<span class="tag">{{ edge_type }}</span>{% endfor %}</div>
+          <p>{{ hit.rationale or "No rationale captured yet." }}</p>
+          <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/pin" class="inline-form mt-1">
+            <input type="hidden" name="ref_id" value="{{ hit.ref_id }}" />
+            <input type="hidden" name="title" value="{{ hit.title }}" />
+            <input type="hidden" name="rationale" value="Pinned from context pack related-artifact results." />
+            <button class="btn btn-secondary btn-sm" type="submit">Pin This Artifact</button>
+          </form>
+        </div>
+        {% endfor %}
+      {% else %}
+      <p>No related artifacts yet.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <details class="mt-2">
+    <summary>Advanced JSON View</summary>
+    <div class="result-box">
+      <pre class="json-output">{{ context_pack_json }}</pre>
+    </div>
+  </details>
+  {% else %}
+  <div class="alert alert-warning mt-2">No context pack has been built for this workspace yet.</div>
+  {% endif %}
+</div>

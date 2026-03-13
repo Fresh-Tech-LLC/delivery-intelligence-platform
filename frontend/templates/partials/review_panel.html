@@ -1,0 +1,33 @@
+<div class="card">
+  <div class="card-title">Review / Edit</div>
+  <p class="text-muted">This pass supports lightweight review edits for assumptions, open questions, and the top-level requirements framing. Full item-by-item editing is intentionally deferred.</p>
+  <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/review">
+    <div class="requirements-grid">
+      <div class="form-group">
+        <label for="assumptions_text">Assumptions</label>
+        <textarea id="assumptions_text" name="assumptions_text" class="small">{% for item in workspace.assumptions %}{{ item }}
+{% endfor %}</textarea>
+      </div>
+      <div class="form-group">
+        <label for="open_questions_text">Open Questions</label>
+        <textarea id="open_questions_text" name="open_questions_text" class="small">{% for item in workspace.open_questions %}{{ item }}
+{% endfor %}</textarea>
+      </div>
+    </div>
+    <div class="requirements-grid">
+      <div class="form-group">
+        <label for="problem_statement">Problem Statement</label>
+        <textarea id="problem_statement" name="problem_statement" class="small">{{ requirements_draft.problem_statement if requirements_draft else "" }}</textarea>
+      </div>
+      <div class="form-group">
+        <label for="business_outcome">Business Outcome</label>
+        <textarea id="business_outcome" name="business_outcome" class="small">{{ requirements_draft.business_outcome if requirements_draft else "" }}</textarea>
+      </div>
+    </div>
+    <div class="form-group">
+      <label for="requirements_generation_notes">Review Notes / Generation Notes</label>
+      <textarea id="requirements_generation_notes" name="requirements_generation_notes" class="small">{{ requirements_draft.generation_notes if requirements_draft and requirements_draft.generation_notes else "" }}</textarea>
+    </div>
+    <button class="btn btn-secondary" type="submit">Save Review Fields</button>
+  </form>
+</div>

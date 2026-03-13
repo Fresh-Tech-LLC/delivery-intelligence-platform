@@ -1,0 +1,55 @@
+<div class="card">
+  <div class="card-title">Evidence</div>
+  <p class="text-muted">Pin key artifacts or chunks that should explicitly ground the requirements output.</p>
+  <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/pin">
+    <div class="requirements-grid">
+      <div class="form-group">
+        <label for="ref_id">Ref ID</label>
+        <input id="ref_id" type="text" name="ref_id" placeholder="artifact-id or chunk-id" required />
+      </div>
+      <div class="form-group">
+        <label for="title">Optional Title Override</label>
+        <input id="title" type="text" name="title" placeholder="Leave blank to derive from the ref" />
+      </div>
+    </div>
+    <div class="form-group">
+      <label for="rationale">Rationale</label>
+      <textarea id="rationale" name="rationale" class="small" placeholder="Why should reviewers trust this evidence?"></textarea>
+    </div>
+    <button class="btn btn-secondary" type="submit">Pin Evidence</button>
+  </form>
+  <p class="text-muted mt-1">Example acceptable refs: {% if example_ref_ids %}{% for ref_id in example_ref_ids %}<code>{{ ref_id }}</code>{% if not loop.last %}, {% endif %}{% endfor %}{% else %}<code>local-req-001</code>, <code>local-req-001-chunk-0000</code>{% endif %}</p>
+
+  {% if workspace.pinned_evidence %}
+  <div class="stack-list">
+    {% for item in workspace.pinned_evidence %}
+    <div class="story-card">
+      <div class="story-card-header">
+        <h4>{{ item.title }}</h4>
+        <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/unpin">
+          <input type="hidden" name="evidence_id" value="{{ item.evidence_id }}" />
+          <button class="btn btn-danger btn-sm" type="submit">Unpin</button>
+        </form>
+      </div>
+      <div class="meta">
+        <span class="tag">{{ item.evidence_type.value }}</span>
+        {% if item.source_system %}<span class="tag">{{ item.source_system }}</span>{% endif %}
+        {% if item.artifact_kind %}<span class="tag">{{ item.artifact_kind }}</span>{% endif %}
+      </div>
+      <div><code>{{ item.ref_id }}</code></div>
+      {% if item.rationale %}<p>{{ item.rationale }}</p>{% endif %}
+      {% if item.metadata %}
+      <details class="mt-1">
+        <summary>Provenance</summary>
+        <div class="result-box">
+          <pre class="json-output">{{ item.metadata | tojson(indent=2) }}</pre>
+        </div>
+      </details>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="alert alert-info mt-2">No pinned evidence yet.</div>
+  {% endif %}
+</div>

@@ -1,0 +1,45 @@
+<div class="card workflow-card">
+  <div class="card-title">Guided Workflow</div>
+  <div class="workflow-summary">
+    <div class="progress-ring">{{ workflow.progress_percent }}%</div>
+    <div>
+      <p><strong>Current Stage:</strong> {{ workflow.current_stage.replace("_", " ") }}</p>
+      <p><strong>Recommended Next Action:</strong> {{ workflow.recommended_next_action }}</p>
+      {% if workflow.next_stage %}
+      <p class="text-muted">Next stage target: {{ workflow.next_stage.replace("_", " ") }}</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="workflow-stepper">
+    {% for stage in workflow.stage_statuses %}
+    <div class="workflow-step workflow-step-{{ stage.status }}">
+      <div class="workflow-step-header">
+        <span class="workflow-badge workflow-badge-{{ stage.status }}">{{ loop.index }}</span>
+        <div>
+          <strong>{{ stage.label }}</strong>
+          <div class="text-muted">{{ stage.detail }}</div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% if workflow.blocking_items %}
+  <div class="alert alert-warning mt-2">
+    <strong>Blocking Items</strong>
+    {% for item in workflow.blocking_items %}
+    <div>{{ item }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if workflow.warnings %}
+  <div class="alert alert-info mt-2">
+    <strong>Warnings</strong>
+    {% for item in workflow.warnings %}
+    <div>{{ item }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>

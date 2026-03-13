@@ -1,0 +1,103 @@
+<div class="card">
+  <div class="card-title">Requirements Draft</div>
+  <p class="text-muted">Generate a structured draft grounded in the context pack and pinned evidence. Review is still required before downstream handoff.</p>
+  <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/generate-requirements" class="mt-1">
+    <button class="btn btn-primary" type="submit">Generate Requirements</button>
+  </form>
+
+  {% if requirements_draft %}
+  <div class="structured-panel mt-2">
+    <div class="requirements-grid">
+      <div class="result-box">
+        <strong>Problem Statement</strong>
+        <div class="requirements-output">{{ requirements_draft.problem_statement }}</div>
+      </div>
+      <div class="result-box">
+        <strong>Business Outcome</strong>
+        <div class="requirements-output">{{ requirements_draft.business_outcome }}</div>
+      </div>
+    </div>
+    <div class="requirements-grid mt-2">
+      <div class="result-box">
+        <strong>In Scope</strong>
+        <ul class="ac-list">
+          {% for item in requirements_draft.in_scope %}<li>{{ item }}</li>{% else %}<li>No in-scope items yet.</li>{% endfor %}
+        </ul>
+      </div>
+      <div class="result-box">
+        <strong>Out Of Scope</strong>
+        <ul class="ac-list">
+          {% for item in requirements_draft.out_of_scope %}<li>{{ item }}</li>{% else %}<li>No out-of-scope items yet.</li>{% endfor %}
+        </ul>
+      </div>
+    </div>
+
+    <div class="requirements-grid mt-2">
+      <div class="result-box">
+        <strong>Assumptions</strong>
+        <ul class="ac-list">
+          {% for item in requirements_draft.assumptions %}<li>{{ item }}</li>{% else %}<li>No assumptions recorded yet.</li>{% endfor %}
+        </ul>
+      </div>
+      <div class="result-box">
+        <strong>Open Questions</strong>
+        <ul class="ac-list">
+          {% for item in requirements_draft.open_questions %}<li>{{ item }}</li>{% else %}<li>No open questions recorded yet.</li>{% endfor %}
+        </ul>
+      </div>
+    </div>
+
+    <h4 class="section-title mt-2">Requirement Items</h4>
+    {% for item in requirements_draft.requirements %}
+    <div class="story-card">
+      <div class="story-card-header">
+        <h4>{{ item.requirement_id }} · {{ item.title }}</h4>
+        <span class="tag">{{ item.priority.value }}</span>
+      </div>
+      <p>{{ item.description }}</p>
+      <div class="requirements-grid">
+        <div>
+          <strong>Acceptance Criteria</strong>
+          <ul class="ac-list">
+            {% for entry in item.acceptance_criteria %}<li>{{ entry }}</li>{% else %}<li>No acceptance criteria listed.</li>{% endfor %}
+          </ul>
+        </div>
+        <div>
+          <strong>Business Rules</strong>
+          <ul class="ac-list">
+            {% for entry in item.business_rules %}<li>{{ entry }}</li>{% else %}<li>No business rules listed.</li>{% endfor %}
+          </ul>
+        </div>
+      </div>
+      <div class="requirements-grid mt-1">
+        <div>
+          <strong>Dependencies</strong>
+          <ul class="ac-list">
+            {% for entry in item.dependencies %}<li>{{ entry }}</li>{% else %}<li>No dependencies listed.</li>{% endfor %}
+          </ul>
+        </div>
+        <div>
+          <strong>Source Refs</strong>
+          <ul class="ac-list">
+            {% for entry in item.source_refs %}<li><code>{{ entry }}</code></li>{% else %}<li>No source refs listed.</li>{% endfor %}
+          </ul>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+
+    <details class="mt-2">
+      <summary>Advanced JSON Editing</summary>
+      <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/requirements/save" class="mt-1">
+        <div class="form-group">
+          <label for="requirements_json">Requirements JSON</label>
+          <textarea id="requirements_json" name="requirements_json" class="notes">{{ requirements_json }}</textarea>
+        </div>
+        <button class="btn btn-secondary" type="submit">Save Requirements JSON</button>
+      </form>
+    </details>
+  </div>
+  {% else %}
+  <div class="alert alert-warning mt-2">Requirements draft has not been generated yet.</div>
+  {% endif %}
+</div>
