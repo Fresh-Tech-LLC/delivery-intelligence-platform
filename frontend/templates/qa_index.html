@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}QA Studio{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-title">QA Studio</div>
+  <p>Create a QA workspace from an existing Requirements Studio workspace and drive scenario, script, execution-spec, and Playwright support from there.</p>
+</div>
+
+<div class="card">
+  <div class="card-title">Create QA Workspace</div>
+  {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+  <form method="post" action="/qa/workspaces">
+    <div class="form-group">
+      <label for="source_workspace_id">Source Requirements Workspace ID</label>
+      <input id="source_workspace_id" type="text" name="source_workspace_id" required />
+    </div>
+    <button class="btn btn-primary" type="submit">Create QA Workspace</button>
+  </form>
+  {% if requirements_workspaces %}
+  <div class="result-box">
+    <strong>Available Requirements Workspaces</strong>
+    <ul class="ac-list">
+      {% for workspace in requirements_workspaces %}
+      <li><code>{{ workspace.workspace_id }}</code> — {{ workspace.title }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-title">QA Workspaces</div>
+  {% if qa_workspaces %}
+  <table>
+    <thead>
+      <tr>
+        <th>QA Workspace</th>
+        <th>Source Workspace</th>
+        <th>Status</th>
+        <th>Updated</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for workspace in qa_workspaces %}
+      <tr>
+        <td><a href="/qa/workspaces/{{ workspace.qa_workspace_id }}">{{ workspace.title }}</a></td>
+        <td><code>{{ workspace.source_workspace_id }}</code></td>
+        <td>{{ workspace.status.value }}</td>
+        <td>{{ workspace.updated_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No QA workspaces yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}{{ workspace.title }} · Requirements Studio{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-title">Workspace</div>
+  {% if result %}<div class="alert alert-success">{{ result }}</div>{% endif %}
+  {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+  <div class="requirements-grid">
+    <div>
+      <p><strong>Title:</strong> {{ workspace.title }}</p>
+      <p><strong>Workspace ID:</strong> <code>{{ workspace.workspace_id }}</code></p>
+      <p><strong>Project Key:</strong> {{ workspace.project_key or "—" }}</p>
+      <p><strong>Status:</strong> {{ workspace.status.value }}</p>
+    </div>
+    <div>
+      <p><strong>Created:</strong> {{ workspace.created_at }}</p>
+      <p><strong>Updated:</strong> {{ workspace.updated_at }}</p>
+      <p><strong>Request Summary:</strong> {{ workspace.request_summary or "—" }}</p>
+    </div>
+  </div>
+  <div class="result-box">
+    <strong>Request Text</strong>
+    <div class="requirements-output">{{ workspace.request_text }}</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Actions</div>
+  <div class="form-row">
+    <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/context-pack">
+      <button class="btn btn-secondary" type="submit">Build Context Pack</button>
+    </form>
+    <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/generate-requirements">
+      <button class="btn btn-primary" type="submit">Generate Requirements</button>
+    </form>
+    <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/generate-backlog">
+      <input type="text" name="split_mode" placeholder="balanced | coarse | detailed" />
+      <button class="btn btn-success" type="submit">Generate Backlog</button>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Pinned Evidence</div>
+  <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/pin">
+    <div class="form-group">
+      <label for="ref_id">Ref ID</label>
+      <input id="ref_id" type="text" name="ref_id" placeholder="artifact-id or chunk-id" required />
+    </div>
+    <div class="form-group">
+      <label for="rationale">Rationale</label>
+      <textarea id="rationale" name="rationale" class="small"></textarea>
+    </div>
+    <button class="btn btn-secondary" type="submit">Pin Evidence</button>
+  </form>
+
+  {% if workspace.pinned_evidence %}
+  <div class="stack-list">
+    {% for item in workspace.pinned_evidence %}
+    <div class="story-card">
+      <div class="requirements-grid">
+        <div>
+          <h4>{{ item.title }}</h4>
+          <div class="meta">
+            <span class="tag">{{ item.evidence_type.value }}</span>
+            {% if item.source_system %}<span class="tag">{{ item.source_system }}</span>{% endif %}
+            {% if item.artifact_kind %}<span class="tag">{{ item.artifact_kind }}</span>{% endif %}
+          </div>
+          <div><code>{{ item.ref_id }}</code></div>
+          {% if item.rationale %}<p>{{ item.rationale }}</p>{% endif %}
+        </div>
+        <div>
+          <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/unpin">
+            <input type="hidden" name="evidence_id" value="{{ item.evidence_id }}" />
+            <button class="btn btn-danger btn-sm" type="submit">Unpin</button>
+          </form>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p>No pinned evidence yet.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-title">Context Pack</div>
+  {% if context_pack %}
+  <p>{{ context_pack.summary_text }}</p>
+  {% if context_pack.warnings %}
+  <div class="alert alert-warning">
+    {% for warning in context_pack.warnings %}
+    <div>{{ warning }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <div class="requirements-grid">
+    <div>
+      <h4>Search Hits</h4>
+      {% for hit in context_pack.search_hits %}
+      <div class="story-card">
+        <strong>{{ hit.title }}</strong>
+        <div><code>{{ hit.ref_id }}</code></div>
+        <p>{{ hit.snippet }}</p>
+      </div>
+      {% endfor %}
+    </div>
+    <div>
+      <h4>Related Artifacts</h4>
+      {% for hit in context_pack.related_hits %}
+      <div class="story-card">
+        <strong>{{ hit.title }}</strong>
+        <div><code>{{ hit.ref_id }}</code></div>
+        <p>{{ hit.rationale or "No rationale available." }}</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="result-box">
+    <pre class="json-output">{{ context_pack_json }}</pre>
+  </div>
+  {% else %}
+  <p>No context pack has been built for this workspace yet.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-title">Requirements Draft</div>
+  {% if requirements_draft %}
+  <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/requirements/save">
+    <div class="form-group">
+      <label for="requirements_json">Editable JSON</label>
+      <textarea id="requirements_json" name="requirements_json" class="notes">{{ requirements_json }}</textarea>
+    </div>
+    <button class="btn btn-secondary" type="submit">Save Requirements JSON</button>
+  </form>
+  {% else %}
+  <p>No requirements draft yet.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-title">Backlog Draft</div>
+  {% if backlog_draft %}
+  <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/backlog/save">
+    <div class="form-group">
+      <label for="backlog_json">Editable JSON</label>
+      <textarea id="backlog_json" name="backlog_json" class="notes">{{ backlog_json }}</textarea>
+    </div>
+    <button class="btn btn-secondary" type="submit">Save Backlog JSON</button>
+  </form>
+  {% else %}
+  <p>No backlog draft yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

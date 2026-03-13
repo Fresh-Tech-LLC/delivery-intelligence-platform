@@ -72,6 +72,28 @@ class Settings(BaseSettings):
     knowledge_linking_enable_keyword_overlap: bool = True
     knowledge_linking_overlap_threshold: int = 3
     knowledge_linking_max_related_per_artifact: int = 25
+    requirements_workspace_dir: Path = Path("local_data/requirements_workspaces")
+    requirements_context_max_search_results: int = 20
+    requirements_context_max_related_results: int = 10
+    requirements_context_max_pinned_items: int = 50
+    requirements_generation_enabled: bool = True
+    requirements_generation_model_name: Optional[str] = None
+    requirements_story_max_count: int = 25
+    requirements_default_story_split_mode: str = "balanced"
+    qa_workspace_dir: Path = Path("local_data/qa_workspaces")
+    qa_generation_enabled: bool = True
+    qa_generation_model_name: Optional[str] = None
+    qa_max_scenarios_per_workspace: int = 30
+    qa_max_nl_scripts_per_run: int = 20
+    qa_max_execution_specs_per_run: int = 20
+    qa_playwright_enabled: bool = False
+    qa_playwright_command: Optional[str] = None
+    qa_playwright_tests_dir: Path = Path("local_data/generated_playwright")
+    qa_playwright_evidence_dir: Path = Path("local_data/playwright_evidence")
+    qa_exploration_enabled: bool = False
+    qa_max_exploration_steps: int = 25
+    qa_default_browser_role: str = "qa"
+    qa_default_promotion_state: str = "draft"
 
     def __repr__(self) -> str:
         return (

@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+{% block title %}{{ workspace.title }} · QA Studio{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-title">QA Workspace</div>
+  {% if result %}<div class="alert alert-success">{{ result }}</div>{% endif %}
+  {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+  <div class="requirements-grid">
+    <div>
+      <p><strong>Title:</strong> {{ workspace.title }}</p>
+      <p><strong>QA Workspace ID:</strong> <code>{{ workspace.qa_workspace_id }}</code></p>
+      <p><strong>Source Workspace:</strong> <code>{{ workspace.source_workspace_id }}</code></p>
+      <p><strong>Status:</strong> {{ workspace.status.value }}</p>
+    </div>
+    <div>
+      <p><strong>Project Key:</strong> {{ workspace.project_key or "—" }}</p>
+      <p><strong>Created:</strong> {{ workspace.created_at }}</p>
+      <p><strong>Updated:</strong> {{ workspace.updated_at }}</p>
+      {% if source_workspace %}<p><strong>Source Title:</strong> {{ source_workspace.title }}</p>{% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Actions</div>
+  <div class="form-row stacked">
+    <form method="post" action="/qa/workspaces/{{ workspace.qa_workspace_id }}/traceability">
+      <button class="btn btn-secondary" type="submit">Build Traceability</button>
+    </form>
+    <form method="post" action="/qa/workspaces/{{ workspace.qa_workspace_id }}/generate-scenarios">
+      <input type="hidden" name="force_rebuild_traceability" value="true" />
+      <button class="btn btn-primary" type="submit">Generate Scenarios</button>
+    </form>
+    <form method="post" action="/qa/workspaces/{{ workspace.qa_workspace_id }}/generate-nl-scripts">
+      <button class="btn btn-secondary" type="submit">Generate NL Scripts</button>
+    </form>
+    <form method="post" action="/qa/workspaces/{{ workspace.qa_workspace_id }}/generate-execution-specs">
+      <button class="btn btn-secondary" type="submit">Generate Execution Specs</button>
+    </form>
+    <form method="post" action="/qa/workspaces/{{ workspace.qa_workspace_id }}/generate-playwright">
+      <input type="hidden" name="overwrite_existing" value="true" />
+      <button class="btn btn-success" type="submit">Generate Playwright Tests</button>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Traceability Links</div>
+  {% if workspace.traceability_links %}
+  <table>
+    <thead>
+      <tr><th>Type</th><th>Ref</th><th>Title</th></tr>
+    </thead>
+    <tbody>
+      {% for link in workspace.traceability_links %}
+      <tr>
+        <td>{{ link.link_type.value }}</td>
+        <td><code>{{ link.ref_id }}</code></td>
+        <td>{{ link.title or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No traceability links yet.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-title">Guided Exploration</div>
+  <form method="post" action="/qa/workspaces/{{ workspace.qa_workspace_id }}/explore">
+    <div class="form-group">
+      <label for="title">Run Title</label>
+      <input id="title" type="text" name="title" required />
+    </div>
+    <div class="form-group">
+      <label for="target_url">Target URL</label>
+      <input id="target_url" type="text" name="target_url" />
+    </div>
+    <div class="form-group">
+      <label for="starting_context">Starting Context</label>
+      <textarea id="starting_context" name="starting_context" class="small"></textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="steps_requested">Steps Requested</label>
+        <input id="steps_requested" type="text" name="steps_requested" />
+      </div>
+      <div class="form-group">
+        <label for="browser_role">Browser Role</label>
+        <input id="browser_role" type="text" name="browser_role" />
+      </div>
+    </div>
+    <button class="btn btn-secondary" type="submit">Start Exploration</button>
+  </form>
+  {% if exploration_runs %}
+  <div class="stack-list">
+    {% for run in exploration_runs %}
+    <div class="story-card">
+      <strong>{{ run.title }}</strong>
+      <div class="meta">
+        <span class="tag">{{ run.status.value }}</span>
+        <span class="tag">{{ run.exploration_run_id }}</span>
+      </div>
+      <p>{{ run.summary or "No summary available." }}</p>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-title">Execution Results</div>
+  <form method="post" action="/qa/workspaces/{{ workspace.qa_workspace_id }}/run-results">
+    <div class="form-row">
+      <div class="form-group">
+        <label for="status_text">Status</label>
+        <input id="status_text" type="text" name="status_text" value="completed" required />
+      </div>
+      <div class="form-group">
+        <label for="passed">Passed</label>
+        <select id="passed" name="passed">
+          <option value="true">true</option>
+          <option value="false">false</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label for="execution_spec_id">Execution Spec ID</label>
+      <input id="execution_spec_id" type="text" name="execution_spec_id" />
+    </div>
+    <div class="form-group">
+      <label for="generated_test_id">Generated Test ID</label>
+      <input id="generated_test_id" type="text" name="generated_test_id" />
+    </div>
+    <div class="form-group">
+      <label for="failure_summary">Failure Summary</label>
+      <textarea id="failure_summary" name="failure_summary" class="small"></textarea>
+    </div>
+    <div class="form-group">
+      <label for="evidence_summary">Evidence Summary</label>
+      <textarea id="evidence_summary" name="evidence_summary" class="small"></textarea>
+    </div>
+    <button class="btn btn-secondary" type="submit">Record Execution Result</button>
+  </form>
+  {% if run_results %}
+  <div class="stack-list">
+    {% for result_item in run_results %}
+    <div class="story-card">
+      <strong>{{ result_item.run_result_id }}</strong>
+      <div class="meta">
+        <span class="tag">{{ result_item.status.value }}</span>
+        <span class="tag">{% if result_item.passed %}passed{% else %}failed{% endif %}</span>
+        {% if result_item.failure_category %}<span class="tag">{{ result_item.failure_category.value }}</span>{% endif %}
+      </div>
+      <p>{{ result_item.failure_summary or "No failure summary." }}</p>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-title">Regression Candidates</div>
+  <form method="post" action="/qa/workspaces/{{ workspace.qa_workspace_id }}/regression/promote">
+    <div class="form-group">
+      <label for="candidate_id">Candidate ID</label>
+      <input id="candidate_id" type="text" name="candidate_id" required />
+    </div>
+    <div class="form-group">
+      <label for="target_state">Target State</label>
+      <input id="target_state" type="text" name="target_state" placeholder="qa_reviewed" required />
+    </div>
+    <div class="form-group">
+      <label for="rationale">Rationale</label>
+      <textarea id="rationale" name="rationale" class="small"></textarea>
+    </div>
+    <button class="btn btn-secondary" type="submit">Promote Candidate</button>
+  </form>
+  {% if regression_candidates %}
+  <div class="stack-list">
+    {% for candidate in regression_candidates %}
+    <div class="story-card">
+      <strong>{{ candidate.candidate_id }}</strong>
+      <div class="meta">
+        <span class="tag">{{ candidate.state.value }}</span>
+        <span class="tag">{{ candidate.generated_test_id }}</span>
+      </div>
+      <p>{{ candidate.rationale or "No rationale yet." }}</p>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-title">Generated QA Artifacts</div>
+  <div class="requirements-grid">
+    <div>
+      <h4>Scenario Set</h4>
+      {% if scenarios %}
+      <pre class="json-output">{{ scenarios_json }}</pre>
+      {% else %}
+      <p>No scenarios yet.</p>
+      {% endif %}
+    </div>
+    <div>
+      <h4>NL Script Set</h4>
+      {% if nl_scripts %}
+      <pre class="json-output">{{ nl_scripts_json }}</pre>
+      {% else %}
+      <p>No natural-language scripts yet.</p>
+      {% endif %}
+    </div>
+  </div>
+  <div class="requirements-grid">
+    <div>
+      <h4>Execution Specs</h4>
+      {% if execution_specs %}
+      <pre class="json-output">{{ execution_specs_json }}</pre>
+      {% else %}
+      <p>No execution specs yet.</p>
+      {% endif %}
+    </div>
+    <div>
+      <h4>Generated Playwright Tests</h4>
+      {% if generated_tests %}
+      <pre class="json-output">{{ generated_tests_json }}</pre>
+      {% else %}
+      <p>No generated tests yet.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

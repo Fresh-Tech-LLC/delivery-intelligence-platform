@@ -22,6 +22,8 @@ from backend.app.routers import ba, jira, pm, power
 from backend.app.routers import batch as batch_router
 from backend.app.routers import knowledge as knowledge_router
 from backend.app.routers import projects as projects_router
+from backend.app.routers import qa as qa_router
+from backend.app.routers import requirements as requirements_router
 from backend.app.services.ba_agent import BAAgent
 from backend.app.services.document_store import get_document_store
 from backend.app.services.jira_client import JiraError, get_jira_client
@@ -65,6 +67,8 @@ app.include_router(power.router)
 app.include_router(projects_router.router)
 app.include_router(batch_router.router)
 app.include_router(knowledge_router.router)
+app.include_router(requirements_router.router)
+app.include_router(qa_router.router)
 
 # ---------------------------------------------------------------------------
 # UI helpers

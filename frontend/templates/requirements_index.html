@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Requirements Studio{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-title">Requirements Studio</div>
+  <p>Create a feature workspace, assemble a context pack, and generate inspectable requirements and backlog drafts.</p>
+</div>
+
+<div class="card">
+  <div class="card-title">Create Workspace</div>
+  {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+  <form method="post" action="/requirements/workspaces">
+    <div class="form-group">
+      <label for="title">Title</label>
+      <input id="title" type="text" name="title" required />
+    </div>
+    <div class="form-group">
+      <label for="project_key">Project Key</label>
+      <input id="project_key" type="text" name="project_key" />
+    </div>
+    <div class="form-group">
+      <label for="request_text">Request Text</label>
+      <textarea id="request_text" name="request_text" class="notes" required></textarea>
+    </div>
+    <button class="btn btn-primary" type="submit">Create Workspace</button>
+  </form>
+</div>
+
+<div class="card">
+  <div class="card-title">Existing Workspaces</div>
+  {% if workspaces %}
+  <table>
+    <thead>
+      <tr>
+        <th>Workspace</th>
+        <th>Project</th>
+        <th>Status</th>
+        <th>Updated</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for workspace in workspaces %}
+      <tr>
+        <td><a href="/requirements/workspaces/{{ workspace.workspace_id }}">{{ workspace.title }}</a></td>
+        <td>{{ workspace.project_key or "—" }}</td>
+        <td>{{ workspace.status.value }}</td>
+        <td>{{ workspace.updated_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No workspaces yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

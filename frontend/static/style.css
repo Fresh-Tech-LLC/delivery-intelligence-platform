@@ -93,7 +93,7 @@ main.content { flex: 1; padding: 2rem 1.5rem; max-width: 1100px; margin: 0 auto;
 /* Forms */
 label { display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 0.35rem; color: var(--text); }
 
-textarea, input[type="text"], input[type="file"] {
+textarea, input[type="text"], input[type="file"], select {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -105,7 +105,7 @@ textarea, input[type="text"], input[type="file"] {
   transition: border-color 0.15s;
   resize: vertical;
 }
-textarea:focus, input[type="text"]:focus { outline: none; border-color: var(--primary); background: #fff; }
+textarea:focus, input[type="text"]:focus, select:focus { outline: none; border-color: var(--primary); background: #fff; }
 
 textarea.notes { min-height: 200px; font-family: "Courier New", monospace; font-size: 0.85rem; }
 textarea.small { min-height: 80px; }
@@ -234,6 +234,9 @@ tr:hover td { background: #f8fafc; }
 }
 .story-card h4 { font-size: 0.95rem; margin-bottom: 0.5rem; }
 .story-card .meta { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
+.requirements-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.stack-list { margin-top: 1rem; }
+@media (max-width: 800px) { .requirements-grid { grid-template-columns: 1fr; } }
 
 .tag {
   display: inline-block;

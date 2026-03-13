@@ -54,13 +54,14 @@ class LLMClient:
         self,
         messages: list[dict[str, str]],
         *,
+        model_name: Optional[str] = None,
         json_mode: bool = False,
         temperature: float = 0.2,
         max_tokens: Optional[int] = None,
     ) -> dict[str, Any]:
         resolved_max_tokens = self._settings.llm_max_tokens if max_tokens is None else max_tokens
         payload: dict[str, Any] = {
-            "model": self._settings.llm_model_name,
+            "model": model_name or self._settings.llm_model_name,
             "messages": messages,
             self._settings.llm_max_tokens_param: resolved_max_tokens,
         }
@@ -76,6 +77,7 @@ class LLMClient:
         self,
         messages: list[dict[str, str]],
         *,
+        model_name: Optional[str] = None,
         json_mode: bool = False,
         temperature: float = 0.2,
         max_tokens: Optional[int] = None,
@@ -86,7 +88,11 @@ class LLMClient:
         """
         url = f"{self._base_url}/chat/completions"
         payload = self._build_payload(
-            messages, json_mode=json_mode, temperature=temperature, max_tokens=max_tokens
+            messages,
+            model_name=model_name,
+            json_mode=json_mode,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
         logger.debug(
             "LLM request url=%s headers=%s",
@@ -133,6 +139,7 @@ class LLMClient:
         self,
         messages: list[dict[str, str]],
         *,
+        model_name: Optional[str] = None,
         temperature: float = 0.1,
         max_tokens: Optional[int] = None,
     ) -> Any:
@@ -140,7 +147,13 @@ class LLMClient:
         Chat completion that returns parsed JSON.
         On parse failure, sends one auto-repair request.
         """
-        raw = self.chat(messages, json_mode=True, temperature=temperature, max_tokens=max_tokens)
+        raw = self.chat(
+            messages,
+            model_name=model_name,
+            json_mode=True,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
         logger.debug("LLM raw json_mode output: %s", self._preview(raw))
         try:
             return extract_json(raw)
@@ -159,7 +172,11 @@ class LLMClient:
                 },
             ]
             raw2 = self.chat(
-                repair_messages, json_mode=True, temperature=0.0, max_tokens=max_tokens
+                repair_messages,
+                model_name=model_name,
+                json_mode=True,
+                temperature=0.0,
+                max_tokens=max_tokens,
             )
             logger.debug("LLM raw json_mode repair output: %s", self._preview(raw2))
             try:
