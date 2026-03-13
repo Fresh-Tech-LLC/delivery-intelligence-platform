@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 from backend.app.services.graph.artifact_store import get_artifact_store
 from backend.app.services.graph.chunk_store import get_chunk_store
@@ -166,6 +167,72 @@ class KnowledgeService:
             "chunk_id": chunk.chunk_id,
             "edge_id": edge.edge_id,
         }
+
+
+    # ------------------------------------------------------------------
+    # Phase 1 ingestion triggers
+    # ------------------------------------------------------------------
+
+    def run_jira_ingestion(
+        self,
+        project_key: str | None = None,
+        jql: str | None = None,
+        max_results: int | None = None,
+    ) -> IngestionRun:
+        """Trigger a Jira ingestion run and return the completed IngestionRun."""
+        # Deferred imports prevent circular import (KnowledgeService ↔ IngestPipeline)
+        from backend.app.services.ingestion.jira_ingestor import get_jira_ingestion_source
+        from backend.app.services.pipelines.ingest_pipeline import get_ingest_pipeline
+
+        source = get_jira_ingestion_source()
+        run = self.create_run(source.source_name, source.source_type)
+        kwargs: dict[str, Any] = {}
+        if project_key:
+            kwargs["project_key"] = project_key
+        if jql:
+            kwargs["jql"] = jql
+        if max_results is not None:
+            kwargs["max_results"] = max_results
+        return get_ingest_pipeline().run(run.run_id, source, self, **kwargs)
+
+    def run_local_docs_ingestion(
+        self,
+        root_dir: str | None = None,
+        project_key: str | None = None,
+        recursive: bool = True,
+    ) -> IngestionRun:
+        """Trigger a local document ingestion run and return the completed IngestionRun."""
+        from backend.app.services.ingestion.local_docs_ingestor import get_local_docs_ingestion_source
+        from backend.app.services.pipelines.ingest_pipeline import get_ingest_pipeline
+
+        source = get_local_docs_ingestion_source()
+        run = self.create_run(source.source_name, source.source_type)
+        kwargs: dict[str, Any] = {"recursive": recursive}
+        if root_dir:
+            kwargs["root_dir"] = root_dir
+        if project_key:
+            kwargs["project_key"] = project_key
+        return get_ingest_pipeline().run(run.run_id, source, self, **kwargs)
+
+    def search_artifacts(
+        self,
+        project_key: str | None = None,
+        source_system: SourceSystem | None = None,
+        artifact_kind: ArtifactKind | None = None,
+        title_contains: str | None = None,
+    ) -> list[ArtifactRecord]:
+        """Return artifacts matching the given filters (all optional, ANDed together)."""
+        results = self._artifacts.list_all()
+        if project_key:
+            results = [r for r in results if r.metadata.project_key == project_key]
+        if source_system:
+            results = [r for r in results if r.metadata.source_system == source_system]
+        if artifact_kind:
+            results = [r for r in results if r.metadata.artifact_kind == artifact_kind]
+        if title_contains:
+            needle = title_contains.lower()
+            results = [r for r in results if needle in r.metadata.title.lower()]
+        return results
 
 
 def get_knowledge_service() -> KnowledgeService:

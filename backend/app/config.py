@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     templates_dir: Path = Path("frontend/templates")
     static_dir: Path = Path("frontend/static")
 
+    # Knowledge / Ingestion
+    knowledge_raw_capture_enabled: bool = True
+    knowledge_default_project_key: Optional[str] = None  # fallback if not passed at call time; also falls back to jira_project_key
+    knowledge_local_docs_dir: Path = Path("local_data/knowledge_docs")
+    knowledge_jira_max_results: int = 200
+    knowledge_max_file_bytes: int = 20_971_520  # 20 MB guard for local file ingest
+
     def __repr__(self) -> str:
         return (
             f"Settings(llm_api_base={self.llm_api_base!r}, "
