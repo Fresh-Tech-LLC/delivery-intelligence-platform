@@ -1,0 +1,87 @@
+<div class="card">
+  <div class="card-title">Backlog Draft</div>
+  <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/generate-backlog" class="inline-form">
+    <input type="text" name="split_mode" value="{{ backlog_draft.split_mode if backlog_draft else '' }}" placeholder="balanced | coarse | detailed" />
+    <button class="btn btn-success" type="submit">Generate Backlog</button>
+  </form>
+</div>
+
+{% if backlog_draft %}
+<div class="requirements-grid">
+  <div class="card compact-scroll">
+    <div class="card-title">Backlog Items</div>
+    {% for group_name, items in backlog_groups %}
+      <h4 class="section-title">{{ group_name|title }}</h4>
+      {% set first_group = loop.first %}
+      {% for item in items %}
+      <a class="snapshot-link {% if request.query_params.get('focus') == item.item_id or (not request.query_params.get('focus') and first_group and loop.first) %}active{% endif %}" href="/requirements/workspaces/{{ workspace.workspace_id }}?panel=backlog&focus={{ item.item_id }}">
+        <strong>{{ item.item_id }}</strong>
+        <div>{{ item.title }}</div>
+        <div class="meta"><span class="tag">{{ item.item_type.value }}</span><span class="tag">{{ item.source_refs|length }} refs</span></div>
+      </a>
+      {% endfor %}
+    {% endfor %}
+  </div>
+
+  <div class="card compact-scroll">
+    <div class="card-title">Backlog Detail</div>
+    {% set focus_id = request.query_params.get('focus') %}
+    {% set selected_item = namespace(item=None) %}
+    {% for item in backlog_draft.items %}
+      {% if (focus_id and item.item_id == focus_id) or (not focus_id and loop.first) %}
+        {% set selected_item.item = item %}
+      {% endif %}
+    {% endfor %}
+    {% if selected_item.item %}
+    <div class="result-box">
+      <strong>{{ selected_item.item.item_id }} | {{ selected_item.item.title }}</strong>
+      <div class="requirements-output mt-1">{{ selected_item.item.description }}</div>
+    </div>
+    <div class="requirements-grid mt-2">
+      <div>
+        <strong>Acceptance Criteria</strong>
+        <ul class="ac-list">
+          {% for entry in selected_item.item.acceptance_criteria %}<li>{{ entry }}</li>{% else %}<li>No acceptance criteria listed.</li>{% endfor %}
+        </ul>
+      </div>
+      <div>
+        <strong>Dependencies</strong>
+        <ul class="ac-list">
+          {% for entry in selected_item.item.dependencies %}<li>{{ entry }}</li>{% else %}<li>No dependencies listed.</li>{% endfor %}
+        </ul>
+      </div>
+    </div>
+    <div class="requirements-grid mt-2">
+      <div>
+        <strong>Labels / Team Hint</strong>
+        <div class="meta">{% for label in selected_item.item.labels %}<span class="tag">{{ label }}</span>{% else %}<span class="text-muted">No labels.</span>{% endfor %}</div>
+        <div class="text-muted">{{ selected_item.item.team_hint or "No team hint yet." }}</div>
+      </div>
+      <div>
+        <strong>Source Refs</strong>
+        <ul class="ac-list">
+          {% for entry in selected_item.item.source_refs %}<li><code>{{ entry }}</code></li>{% else %}<li>No source refs listed.</li>{% endfor %}
+        </ul>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <details>
+    <summary>Advanced JSON Editing</summary>
+    <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/backlog/save" class="mt-1">
+      <div class="form-group">
+        <label for="backlog_json">Backlog JSON</label>
+        <textarea id="backlog_json" name="backlog_json" class="notes">{{ backlog_json }}</textarea>
+      </div>
+      <button class="btn btn-secondary" type="submit">Save Backlog JSON</button>
+    </form>
+  </details>
+</div>
+{% else %}
+<div class="card">
+  <div class="alert alert-warning">Backlog draft not available yet.</div>
+</div>
+{% endif %}

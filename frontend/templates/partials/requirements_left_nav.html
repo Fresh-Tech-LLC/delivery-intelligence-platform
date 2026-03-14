@@ -1,0 +1,31 @@
+<div class="card rail-card">
+  <div class="card-title">Workflow</div>
+  <div class="rail-nav">
+    {% for panel_name, panel_label in [
+      ("intake", "Intake"),
+      ("context", "Context"),
+      ("evidence", "Evidence"),
+      ("requirements", "Requirements"),
+      ("review", "Review"),
+      ("backlog", "Backlog"),
+      ("export", "Export")
+    ] %}
+    <a class="rail-link {% if active_panel == panel_name %}active{% endif %}" href="/requirements/workspaces/{{ workspace.workspace_id }}?panel={{ panel_name }}">
+      <span>{{ panel_label }}</span>
+      {% for stage in workflow.stage_statuses %}
+        {% if
+          (panel_name == "intake" and stage.stage == "create_workspace") or
+          (panel_name == "context" and stage.stage == "build_context") or
+          (panel_name == "evidence" and stage.stage == "pin_evidence") or
+          (panel_name == "requirements" and stage.stage == "generate_requirements") or
+          (panel_name == "review" and stage.stage == "review_edit_requirements") or
+          (panel_name == "backlog" and stage.stage == "generate_backlog") or
+          (panel_name == "export" and stage.stage == "review_export_publish")
+        %}
+        <span class="tag">{{ stage.status }}</span>
+        {% endif %}
+      {% endfor %}
+    </a>
+    {% endfor %}
+  </div>
+</div>

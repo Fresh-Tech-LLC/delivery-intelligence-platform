@@ -1,0 +1,51 @@
+<div class="card inspector-card">
+  <div class="card-title">Inspector</div>
+  <div class="result-box">
+    <strong>Next Move</strong>
+    <div class="requirements-output">{{ workflow.recommended_next_action }}</div>
+  </div>
+
+  {% if state.blockers %}
+  <div class="alert alert-warning mt-2">
+    <strong>Blockers</strong>
+    {% for item in state.blockers %}<div>{{ item }}</div>{% endfor %}
+  </div>
+  {% endif %}
+
+  {% if state.warnings %}
+  <div class="alert alert-info mt-2">
+    <strong>Warnings</strong>
+    {% for item in state.warnings %}<div>{{ item }}</div>{% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="mt-2">
+    <strong>Latest Validation</strong>
+    {% if latest_validation_result %}
+      <div class="text-muted">{{ latest_validation_result.created_at }}</div>
+      <div class="requirements-output">{{ latest_validation_result.summary or "No summary." }}</div>
+      {% for issue in latest_validation_result.issues[:6] %}
+      <div class="finding {{ 'blocker' if issue.severity.value == 'error' else 'major' if issue.severity.value == 'warning' else 'minor' }}">
+        <div class="finding-header">
+          <span class="badge badge-{{ 'blocker' if issue.severity.value == 'error' else 'major' if issue.severity.value == 'warning' else 'minor' }}">{{ issue.severity.value }}</span>
+          <span class="badge badge-category">{{ issue.category }}</span>
+        </div>
+        <strong>{{ issue.title }}</strong>
+        <div class="text-muted">{{ issue.description }}</div>
+      </div>
+      {% endfor %}
+    {% else %}
+    <p class="text-muted">No validation result yet.</p>
+    {% endif %}
+  </div>
+
+  <div class="mt-2">
+    <strong>Latest Context Snapshot</strong>
+    {% if selected_snapshot %}
+      <div class="text-muted">{{ selected_snapshot.created_at }}</div>
+      <div class="requirements-output">{{ selected_snapshot.summary_text }}</div>
+    {% else %}
+      <p class="text-muted">No context snapshot yet.</p>
+    {% endif %}
+  </div>
+</div>

@@ -1,0 +1,45 @@
+<div class="card dashboard-header-card">
+  <div class="dashboard-header-top">
+    <div>
+      <div class="card-title">Requirements Studio Dashboard</div>
+      <h1 class="page-title">{{ workspace.title }}</h1>
+      <div class="meta-row">
+        <span class="tag">Workspace {{ workspace.workspace_id }}</span>
+        {% if workspace.project_key %}<span class="tag">Project {{ workspace.project_key }}</span>{% endif %}
+        <span class="tag">Stage {{ state.current_stage.value.replace("_", " ") }}</span>
+        <span class="tag">Status {{ workspace.status.value }}</span>
+      </div>
+    </div>
+    <div class="dashboard-next-action">
+      <div class="dashboard-stat-label">Recommended Next Action</div>
+      <div class="dashboard-next-copy">{{ workflow.recommended_next_action }}</div>
+    </div>
+  </div>
+
+  <div class="dashboard-stat-grid mt-2">
+    <div class="dashboard-stat-card">
+      <div class="dashboard-stat-label">Progress</div>
+      <div class="dashboard-stat-value">{{ workflow.progress_percent }}%</div>
+    </div>
+    <div class="dashboard-stat-card">
+      <div class="dashboard-stat-label">Pinned Evidence</div>
+      <div class="dashboard-stat-value">{{ dashboard.counts.pinned_evidence }}</div>
+    </div>
+    <div class="dashboard-stat-card">
+      <div class="dashboard-stat-label">Context Snapshots</div>
+      <div class="dashboard-stat-value">{{ dashboard.counts.context_snapshots }}</div>
+    </div>
+    <div class="dashboard-stat-card">
+      <div class="dashboard-stat-label">Requirements</div>
+      <div class="dashboard-stat-value">{{ dashboard.counts.requirements_items if requirements_draft else "Not generated" }}</div>
+    </div>
+    <div class="dashboard-stat-card">
+      <div class="dashboard-stat-label">Backlog</div>
+      <div class="dashboard-stat-value">{{ dashboard.counts.backlog_items if backlog_draft else "Not generated" }}</div>
+    </div>
+    <div class="dashboard-stat-card">
+      <div class="dashboard-stat-label">Validation Issues</div>
+      <div class="dashboard-stat-value">{{ dashboard.counts.validation_issues }}</div>
+    </div>
+  </div>
+</div>

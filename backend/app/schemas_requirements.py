@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pydantic import BaseModel
+from backend.app.services.requirements.state_models import ReviewNoteType
 
 
 class CreateWorkspaceRequest(BaseModel):
@@ -25,6 +26,18 @@ class ReviewUpdateRequest(BaseModel):
     problem_statement: str | None = None
     business_outcome: str | None = None
     requirements_generation_notes: str | None = None
+
+
+class CreateReviewNoteRequest(BaseModel):
+    note_type: ReviewNoteType = ReviewNoteType.ANALYST_NOTE
+    title: str
+    body: str
+    linked_refs: list[str] | None = None
+
+
+class RunValidationRequest(BaseModel):
+    target_type: str | None = None
+    target_id: str | None = None
 
 
 class GenerateBacklogRequest(BaseModel):

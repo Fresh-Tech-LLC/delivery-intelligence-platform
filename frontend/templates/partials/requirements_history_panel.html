@@ -1,0 +1,37 @@
+<div class="card inspector-card">
+  <div class="card-title">Recent Activity</div>
+  {% for entry in generation_history[:8] %}
+  <div class="history-entry">
+    <strong>{{ entry.generation_type.value.replace("_", " ") }}</strong>
+    <div class="text-muted">{{ entry.created_at }}</div>
+    {% if entry.notes %}<div class="text-muted">{{ entry.notes }}</div>{% endif %}
+    {% if entry.output_ref %}<div><code>{{ entry.output_ref }}</code></div>{% endif %}
+  </div>
+  {% else %}
+  <p class="text-muted">No history entries yet.</p>
+  {% endfor %}
+
+  <div class="divider"></div>
+
+  <strong>Recent Findings</strong>
+  {% for note in review_notes[:3] %}
+  <div class="history-entry">
+    <strong>{{ note.title }}</strong>
+    <div class="text-muted">{{ note.note_type.value.replace("_", " ") }} | {{ note.created_at }}</div>
+    <div class="text-muted">{{ note.body[:120] }}{% if note.body|length > 120 %}...{% endif %}</div>
+  </div>
+  {% else %}
+  <p class="text-muted mt-1">No review notes yet.</p>
+  {% endfor %}
+
+  <div class="divider"></div>
+
+  <strong>Pinned Evidence Quick Links</strong>
+  <div class="meta mt-1">
+    {% for item in workspace.pinned_evidence[:8] %}
+    <span class="tag">{{ item.ref_id }}</span>
+    {% else %}
+    <span class="text-muted">No pinned evidence yet.</span>
+    {% endfor %}
+  </div>
+</div>

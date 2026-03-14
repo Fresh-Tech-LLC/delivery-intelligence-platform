@@ -1,37 +1,37 @@
 {% extends "base.html" %}
-{% block title %}{{ workspace.title }} · Requirements Studio{% endblock %}
+{% block title %}{{ workspace.title }} | Requirements Studio{% endblock %}
 {% block content %}
 {% if result %}<div class="alert alert-success">{{ result }}</div>{% endif %}
 {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 
-{% include "partials/requirements_workflow_nav.html" %}
-{% include "partials/requirements_header.html" %}
+{% include "partials/requirements_dashboard_header.html" %}
 
-<div class="card">
-  <div class="card-title">Request / Feature Intake</div>
-  <div class="result-box">
-    <strong>Original Request Text</strong>
-    <div class="requirements-output">{{ workspace.request_text }}</div>
-  </div>
-  <div class="requirements-grid mt-2">
-    <div class="result-box">
-      <strong>Request Summary</strong>
-      <div class="requirements-output">{{ workspace.request_summary or "No request summary captured yet." }}</div>
-    </div>
-    <div class="result-box">
-      <strong>Current Human Review Signals</strong>
-      <div class="requirements-output">
-        Assumptions: {{ workspace.assumptions|length }}<br />
-        Open questions: {{ workspace.open_questions|length }}
-      </div>
-    </div>
-  </div>
+<div class="requirements-dashboard">
+  <aside class="dashboard-rail">
+    {% include "partials/requirements_left_nav.html" %}
+  </aside>
+
+  <section class="dashboard-main">
+    {% if active_panel == "intake" %}
+      {% include "partials/requirements_investigation_panel.html" %}
+    {% elif active_panel == "context" %}
+      {% include "partials/requirements_context_panel.html" %}
+    {% elif active_panel == "evidence" %}
+      {% include "partials/requirements_evidence_panel.html" %}
+    {% elif active_panel == "requirements" %}
+      {% include "partials/requirements_draft_panel.html" %}
+    {% elif active_panel == "review" %}
+      {% include "partials/review_panel.html" %}
+    {% elif active_panel == "backlog" %}
+      {% include "partials/requirements_backlog_panel.html" %}
+    {% else %}
+      {% include "partials/requirements_export_panel.html" %}
+    {% endif %}
+  </section>
+
+  <aside class="dashboard-inspector">
+    {% include "partials/requirements_validation_panel.html" %}
+    {% include "partials/requirements_history_panel.html" %}
+  </aside>
 </div>
-
-{% include "partials/context_pack_panel.html" %}
-{% include "partials/evidence_panel.html" %}
-{% include "partials/requirements_draft_panel.html" %}
-{% include "partials/review_panel.html" %}
-{% include "partials/backlog_draft_panel.html" %}
-{% include "partials/export_panel.html" %}
 {% endblock %}

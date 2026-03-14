@@ -1,0 +1,48 @@
+<div class="card">
+  <div class="card-title">Evidence Board</div>
+  <p class="text-muted">Pin the artifacts and chunks that should anchor the draft. This is the clearest review signal for downstream readers.</p>
+  <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/pin">
+    <div class="requirements-grid">
+      <div class="form-group">
+        <label for="ref_id">Ref ID</label>
+        <input id="ref_id" type="text" name="ref_id" placeholder="artifact-id or chunk-id" required />
+      </div>
+      <div class="form-group">
+        <label for="title_override">Optional Title Override</label>
+        <input id="title_override" type="text" name="title" placeholder="Leave blank to derive from the ref" />
+      </div>
+    </div>
+    <div class="form-group">
+      <label for="rationale">Rationale</label>
+      <textarea id="rationale" name="rationale" class="small" placeholder="Why should this evidence influence the draft?"></textarea>
+    </div>
+    <button class="btn btn-secondary" type="submit">Pin Evidence</button>
+  </form>
+  <p class="text-muted mt-1">Example refs: {% if example_ref_ids %}{% for ref_id in example_ref_ids %}<code>{{ ref_id }}</code>{% if not loop.last %}, {% endif %}{% endfor %}{% else %}<code>local-req-001</code>{% endif %}</p>
+</div>
+
+<div class="card compact-scroll">
+  <div class="card-title">Pinned Evidence</div>
+  {% if workspace.pinned_evidence %}
+    {% for item in workspace.pinned_evidence %}
+    <div class="story-card evidence-board-card">
+      <div class="story-card-header">
+        <h4>{{ item.title }}</h4>
+        <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/unpin">
+          <input type="hidden" name="evidence_id" value="{{ item.evidence_id }}" />
+          <button class="btn btn-danger btn-sm" type="submit">Unpin</button>
+        </form>
+      </div>
+      <div class="meta">
+        <span class="tag">{{ item.evidence_type.value }}</span>
+        {% if item.source_system %}<span class="tag">{{ item.source_system }}</span>{% endif %}
+        {% if item.artifact_kind %}<span class="tag">{{ item.artifact_kind }}</span>{% endif %}
+      </div>
+      <div><code>{{ item.ref_id }}</code></div>
+      {% if item.rationale %}<p>{{ item.rationale }}</p>{% endif %}
+    </div>
+    {% endfor %}
+  {% else %}
+  <div class="alert alert-info">No pinned evidence yet.</div>
+  {% endif %}
+</div>

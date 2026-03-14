@@ -1,33 +1,72 @@
 <div class="card">
   <div class="card-title">Review / Edit</div>
-  <p class="text-muted">This pass supports lightweight review edits for assumptions, open questions, and the top-level requirements framing. Full item-by-item editing is intentionally deferred.</p>
-  <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/review">
-    <div class="requirements-grid">
-      <div class="form-group">
-        <label for="assumptions_text">Assumptions</label>
-        <textarea id="assumptions_text" name="assumptions_text" class="small">{% for item in workspace.assumptions %}{{ item }}
+  <div class="workspace-actions">
+    <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/validate">
+      <button class="btn btn-secondary" type="submit">Run Validation</button>
+    </form>
+  </div>
+  <p class="text-muted mt-1">Use this panel to tighten assumptions, document ambiguity, and inspect gaps before generating or exporting downstream artifacts.</p>
+</div>
+
+<div class="requirements-grid">
+  <div class="card">
+    <div class="card-title">Review Fields</div>
+    <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/review">
+      <div class="requirements-grid">
+        <div class="form-group">
+          <label for="assumptions_text">Assumptions</label>
+          <textarea id="assumptions_text" name="assumptions_text" class="small">{% for item in workspace.assumptions %}{{ item }}
 {% endfor %}</textarea>
-      </div>
-      <div class="form-group">
-        <label for="open_questions_text">Open Questions</label>
-        <textarea id="open_questions_text" name="open_questions_text" class="small">{% for item in workspace.open_questions %}{{ item }}
+        </div>
+        <div class="form-group">
+          <label for="open_questions_text">Open Questions</label>
+          <textarea id="open_questions_text" name="open_questions_text" class="small">{% for item in workspace.open_questions %}{{ item }}
 {% endfor %}</textarea>
+        </div>
       </div>
-    </div>
-    <div class="requirements-grid">
+      <div class="requirements-grid">
+        <div class="form-group">
+          <label for="problem_statement">Problem Statement</label>
+          <textarea id="problem_statement" name="problem_statement" class="small">{{ requirements_draft.problem_statement if requirements_draft else "" }}</textarea>
+        </div>
+        <div class="form-group">
+          <label for="business_outcome">Business Outcome</label>
+          <textarea id="business_outcome" name="business_outcome" class="small">{{ requirements_draft.business_outcome if requirements_draft else "" }}</textarea>
+        </div>
+      </div>
       <div class="form-group">
-        <label for="problem_statement">Problem Statement</label>
-        <textarea id="problem_statement" name="problem_statement" class="small">{{ requirements_draft.problem_statement if requirements_draft else "" }}</textarea>
+        <label for="requirements_generation_notes">Generation / Review Notes</label>
+        <textarea id="requirements_generation_notes" name="requirements_generation_notes" class="small">{{ requirements_draft.generation_notes if requirements_draft and requirements_draft.generation_notes else "" }}</textarea>
+      </div>
+      <button class="btn btn-secondary" type="submit">Save Review Fields</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Add Review Note</div>
+    <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/review-notes">
+      <div class="form-group">
+        <label for="review_note_type">Note Type</label>
+        <select id="review_note_type" name="note_type">
+          <option value="analyst_note">Analyst Note</option>
+          <option value="ambiguity">Ambiguity</option>
+          <option value="gap">Gap</option>
+          <option value="review_comment">Review Comment</option>
+        </select>
       </div>
       <div class="form-group">
-        <label for="business_outcome">Business Outcome</label>
-        <textarea id="business_outcome" name="business_outcome" class="small">{{ requirements_draft.business_outcome if requirements_draft else "" }}</textarea>
+        <label for="review_note_title">Title</label>
+        <input id="review_note_title" type="text" name="title" required />
       </div>
-    </div>
-    <div class="form-group">
-      <label for="requirements_generation_notes">Review Notes / Generation Notes</label>
-      <textarea id="requirements_generation_notes" name="requirements_generation_notes" class="small">{{ requirements_draft.generation_notes if requirements_draft and requirements_draft.generation_notes else "" }}</textarea>
-    </div>
-    <button class="btn btn-secondary" type="submit">Save Review Fields</button>
-  </form>
+      <div class="form-group">
+        <label for="review_note_body">Body</label>
+        <textarea id="review_note_body" name="body" class="small" required></textarea>
+      </div>
+      <div class="form-group">
+        <label for="review_note_refs">Linked Refs</label>
+        <textarea id="review_note_refs" name="linked_refs" class="small" placeholder="One ref per line"></textarea>
+      </div>
+      <button class="btn btn-secondary" type="submit">Save Review Note</button>
+    </form>
+  </div>
 </div>

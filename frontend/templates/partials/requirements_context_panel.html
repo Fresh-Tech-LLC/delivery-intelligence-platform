@@ -1,0 +1,83 @@
+<div class="card">
+  <div class="card-title">Context Investigation</div>
+  <div class="workspace-actions">
+    <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/context-pack">
+      <button class="btn btn-secondary" type="submit">Build / Rebuild Context</button>
+    </form>
+    <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/validate">
+      <button class="btn btn-secondary" type="submit">Run Validation</button>
+    </form>
+  </div>
+
+  {% if selected_snapshot %}
+  <div class="result-box mt-2">
+    <strong>Selected Snapshot</strong>
+    <div class="requirements-output">{{ selected_snapshot.summary_text }}</div>
+    <div class="meta-row mt-1">
+      <span class="tag">{{ selected_snapshot.search_hits|length }} search hits</span>
+      <span class="tag">{{ selected_snapshot.related_hits|length }} related hits</span>
+      <span class="tag">{{ selected_snapshot.selected_source_refs|length }} refs</span>
+    </div>
+  </div>
+  {% else %}
+  <div class="alert alert-warning mt-2">No context snapshot exists yet.</div>
+  {% endif %}
+</div>
+
+<div class="requirements-grid">
+  <div class="card compact-scroll">
+    <div class="card-title">Snapshots</div>
+    {% for snapshot in context_snapshots %}
+    <a class="snapshot-link {% if selected_snapshot and selected_snapshot.snapshot_id == snapshot.snapshot_id %}active{% endif %}" href="/requirements/workspaces/{{ workspace.workspace_id }}/context-snapshots/{{ snapshot.snapshot_id }}">
+      <strong>{{ snapshot.snapshot_id }}</strong>
+      <div class="text-muted">{{ snapshot.created_at }}</div>
+      <div class="text-muted">{{ snapshot.summary_text[:110] }}{% if snapshot.summary_text|length > 110 %}...{% endif %}</div>
+    </a>
+    {% else %}
+    <p>No snapshots yet.</p>
+    {% endfor %}
+  </div>
+
+  <div class="card compact-scroll">
+    <div class="card-title">Candidate Leads</div>
+    {% if selected_snapshot %}
+      {% for hit in selected_snapshot.search_hits[:8] %}
+      <div class="story-card">
+        <div class="story-card-header">
+          <strong>{{ hit.title }}</strong>
+          <span class="tag">score {{ "%.2f"|format(hit.score) }}</span>
+        </div>
+        <div><code>{{ hit.ref_id }}</code></div>
+        <p>{{ hit.snippet }}</p>
+        <form method="post" action="/requirements/workspaces/{{ workspace.workspace_id }}/pin" class="inline-form">
+          <input type="hidden" name="ref_id" value="{{ hit.ref_id }}" />
+          <input type="hidden" name="title" value="{{ hit.title }}" />
+          <input type="hidden" name="rationale" value="Pinned from context snapshot candidate leads." />
+          <button class="btn btn-secondary btn-sm" type="submit">Pin</button>
+        </form>
+      </div>
+      {% endfor %}
+    {% else %}
+    <p>No leads yet.</p>
+    {% endif %}
+  </div>
+</div>
+
+{% if selected_snapshot %}
+<div class="card compact-scroll">
+  <div class="card-title">Connected Leads</div>
+  {% for hit in selected_snapshot.related_hits[:8] %}
+  <div class="story-card">
+    <div class="story-card-header">
+      <strong>{{ hit.title }}</strong>
+      <span class="tag">score {{ "%.2f"|format(hit.score) }}</span>
+    </div>
+    <div><code>{{ hit.ref_id }}</code></div>
+    <div class="meta">{% for edge_type in hit.edge_types %}<span class="tag">{{ edge_type }}</span>{% endfor %}</div>
+    <p>{{ hit.rationale or "No rationale captured yet." }}</p>
+  </div>
+  {% else %}
+  <p>No related leads yet.</p>
+  {% endfor %}
+</div>
+{% endif %}

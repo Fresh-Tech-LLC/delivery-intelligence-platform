@@ -3,56 +3,65 @@
 {% block content %}
 <div class="card">
   <div class="card-title">Requirements Studio</div>
-  <p>Create a feature workspace, assemble a context pack, pin evidence, generate requirements, review what still needs human input, and prepare a backlog draft for export.</p>
+  <p>Investigate a feature request, connect evidence, surface ambiguity, generate structured drafts, and decide the next move from a focused dashboard.</p>
 </div>
 
-<div class="card">
-  <div class="card-title">Create Workspace</div>
-  {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
-  <form method="post" action="/requirements/workspaces">
-    <div class="form-group">
-      <label for="title">Title</label>
-      <input id="title" type="text" name="title" required />
+<div class="requirements-grid">
+  <div class="card">
+    <div class="card-title">Create Workspace</div>
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+    <form method="post" action="/requirements/workspaces">
+      <div class="form-group">
+        <label for="title">Title</label>
+        <input id="title" type="text" name="title" required />
+      </div>
+      <div class="form-group">
+        <label for="project_key">Project Key</label>
+        <input id="project_key" type="text" name="project_key" />
+      </div>
+      <div class="form-group">
+        <label for="request_text">Request Text</label>
+        <textarea id="request_text" name="request_text" class="notes" required></textarea>
+      </div>
+      <button class="btn btn-primary" type="submit">Create Workspace</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Studio Snapshot</div>
+    <div class="dashboard-stat-grid">
+      <div class="dashboard-stat-card">
+        <div class="dashboard-stat-label">Workspaces</div>
+        <div class="dashboard-stat-value">{{ workspace_rows|length }}</div>
+      </div>
+      <div class="dashboard-stat-card">
+        <div class="dashboard-stat-label">Ready For Review</div>
+        <div class="dashboard-stat-value">{{ workspace_rows | selectattr("workspace.status.value", "equalto", "requirements_generated") | list | length }}</div>
+      </div>
+      <div class="dashboard-stat-card">
+        <div class="dashboard-stat-label">Backlog Ready</div>
+        <div class="dashboard-stat-value">{{ workspace_rows | selectattr("workspace.status.value", "equalto", "backlog_generated") | list | length }}</div>
+      </div>
     </div>
-    <div class="form-group">
-      <label for="project_key">Project Key</label>
-      <input id="project_key" type="text" name="project_key" />
-    </div>
-    <div class="form-group">
-      <label for="request_text">Request Text</label>
-      <textarea id="request_text" name="request_text" class="notes" required></textarea>
-    </div>
-    <button class="btn btn-primary" type="submit">Create Workspace</button>
-  </form>
+  </div>
 </div>
 
 <div class="card">
   <div class="card-title">Existing Workspaces</div>
   {% if workspace_rows %}
-  <table>
-    <thead>
-      <tr>
-        <th>Workspace</th>
-        <th>Project</th>
-        <th>Status</th>
-        <th>Progress</th>
-        <th>Next Step</th>
-        <th>Updated</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in workspace_rows %}
-      <tr>
-        <td><a href="/requirements/workspaces/{{ row.workspace.workspace_id }}">{{ row.workspace.title }}</a></td>
-        <td>{{ row.workspace.project_key or "—" }}</td>
-        <td>{{ row.workspace.status.value }}</td>
-        <td>{{ row.workflow.progress_percent }}%</td>
-        <td>{{ row.workflow.recommended_next_action }}</td>
-        <td>{{ row.workspace.updated_at }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+    {% for row in workspace_rows %}
+    <a class="workspace-list-card" href="/requirements/workspaces/{{ row.workspace.workspace_id }}">
+      <div>
+        <strong>{{ row.workspace.title }}</strong>
+        <div class="text-muted">{{ row.workspace.project_key or "No project key" }}</div>
+      </div>
+      <div class="meta-row">
+        <span class="tag">{{ row.workspace.status.value }}</span>
+        <span class="tag">{{ row.workflow.progress_percent }}%</span>
+      </div>
+      <div class="text-muted mt-1">{{ row.workflow.recommended_next_action }}</div>
+    </a>
+    {% endfor %}
   {% else %}
   <p>No workspaces yet.</p>
   {% endif %}

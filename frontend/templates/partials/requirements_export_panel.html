@@ -1,0 +1,18 @@
+<div class="card">
+  <div class="card-title">Review / Export / Publish</div>
+  <div class="alert alert-info">Direct Jira publish is not implemented yet. This dashboard ends with review and export for handoff.</div>
+  <div class="workspace-actions">
+    <a class="btn btn-secondary" href="/requirements/workspaces/{{ workspace.workspace_id }}/export">Open Export View</a>
+    <a class="btn btn-secondary" href="/requirements/workspaces/{{ workspace.workspace_id }}/export/requirements.json">Download Requirements JSON</a>
+    <a class="btn btn-secondary" href="/requirements/workspaces/{{ workspace.workspace_id }}/export/backlog.json">Download Backlog JSON</a>
+    <a class="btn btn-secondary" href="/requirements/workspaces/{{ workspace.workspace_id }}/export/workspace.json">Download Combined Workspace JSON</a>
+  </div>
+  <div class="result-box mt-2">
+    <strong>What is available now</strong>
+    <div class="requirements-output">Structured workspace data, latest context snapshot, requirements draft, backlog draft, validation summary, and generation history are all exportable for review and manual downstream handoff.</div>
+  </div>
+  <div class="result-box mt-2">
+    <strong>What is still deferred</strong>
+    <div class="requirements-output">Direct Jira publishing is still deferred. QA Studio and downstream automated test flows are intentionally out of scope for this pass.</div>
+  </div>
+</div>
