@@ -95,6 +95,15 @@ class Settings(BaseSettings):
     qa_default_browser_role: str = "qa"
     qa_default_promotion_state: str = "draft"
 
+    # LLM Adapter
+    # Selects the normalized adapter used by the capability probe and new app code.
+    # Supported: "openai_chat" | "model_engine_ask"
+    llm_adapter_type: str = "openai_chat"
+    # ModelEngine adapter settings (only used when llm_adapter_type = "model_engine_ask")
+    model_engine_default_room_id: Optional[str] = None
+    model_engine_use_history: bool = False
+    model_engine_default_insight_id: Optional[str] = None
+
     # Capability Probe
     probe_enabled: bool = True
     probe_context_smoke_size: int = 40    # repetitions of ~100-char paragraph ≈ 4000 chars total

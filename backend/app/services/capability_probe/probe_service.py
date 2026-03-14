@@ -23,7 +23,6 @@ from backend.app.models.capability_probe import (
 )
 from backend.app.services.capability_probe.probe_runner import PROBE_STEPS, ProbeRunner, grade_report
 from backend.app.services.capability_probe.probe_store import ProbeStore, get_probe_store
-from backend.app.services.llm_client import get_llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -56,10 +55,10 @@ class ProbeService:
     def create_run(self) -> CapabilityProbeRun:
         """Create and persist a new probe run record in PENDING state."""
         run_id = uuid.uuid4().hex
+        # probe_meta is populated at run-start by ProbeRunner (includes adapter_name).
+        # Pre-populate with static config fields only.
         probe_meta: dict[str, Any] = {
-            "model_name": self._settings.llm_model_name,
             "llm_api_base": self._settings.llm_api_base,
-            "probe_context_smoke_size": self._settings.probe_context_smoke_size,
             "probe_step_timeout": self._settings.probe_step_timeout,
         }
         run = CapabilityProbeRun(
@@ -158,7 +157,6 @@ class ProbeService:
         try:
             runner = ProbeRunner(
                 store=self._store,
-                llm_client=get_llm_client(),
                 settings=self._settings,
             )
             runner.run(run_id)

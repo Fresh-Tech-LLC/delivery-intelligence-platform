@@ -537,38 +537,82 @@ class TestProbeLLMClient:
 # ---------------------------------------------------------------------------
 
 
-def _make_probe_result(
-    content: str | None = None,
-    tool_calls=None,
-    raw_response=None,
-    http_status: int | None = 200,
-    error: str | None = None,
+from backend.app.services.llm_adapters import (
+    AdapterInvocationError,
+    AdapterResponse,
+    AdapterUnsupportedFeatureError,
+    ToolCallResult,
+)
+from backend.app.services.llm_adapters.base import AdapterFeatureSupport
+
+
+def _make_adapter_response(
+    text: str = "",
+    parsed_json=None,
+    tool_calls: list | None = None,
     latency_ms: float = 50.0,
-):
-    from backend.app.services.capability_probe.probe_llm_client import ProbeCallResult
-    return ProbeCallResult(
-        content=content,
-        tool_calls=tool_calls,
-        raw_response=raw_response,
-        http_status=http_status,
-        error=error,
+) -> AdapterResponse:
+    return AdapterResponse(
+        text=text,
+        parsed_json=parsed_json,
+        tool_calls=[
+            ToolCallResult(
+                name=tc.get("function", {}).get("name", ""),
+                arguments={},
+            )
+            for tc in (tool_calls or [])
+        ] if tool_calls else [],
         latency_ms=latency_ms,
     )
 
 
-def _make_runner(mock_send_side_effect):
-    """Return a ProbeRunner whose _probe_client.send is replaced with a mock."""
+def _make_runner_with_adapter(adapter) -> Any:
+    """Return a ProbeRunner with the given adapter injected."""
     from backend.app.services.capability_probe.probe_runner import ProbeRunner
     store = MagicMock()
     settings = MagicMock()
     settings.probe_context_smoke_size = 5
-    runner = ProbeRunner(store=store, settings=settings)
-    runner._probe_client = MagicMock()
-    runner._probe_client.send.side_effect = mock_send_side_effect
-    return runner
+    settings.llm_adapter_type = "test"
+    return ProbeRunner(store=store, settings=settings, adapter=adapter)
 
 
-def _run_step(runner, step_name: str) -> CapabilityProbeStepResult:
+def _make_mock_adapter(
+    response: AdapterResponse | None = None,
+    raise_invocation: str | None = None,
+    raise_unsupported: str | None = None,
+    feature_tools: bool = True,
+    feature_structured: bool = True,
+):
+    adapter = MagicMock()
+    adapter.get_feature_support.return_value = AdapterFeatureSupport(
+        structured_output=feature_structured,
+        tool_calling=feature_tools,
+        context_input=True,
+    )
+    resp = response or AdapterResponse()
+    if raise_invocation:
+        exc = AdapterInvocationError(raise_invocation)
+        adapter.ask_text.side_effect = exc
+        adapter.ask_structured.side_effect = exc
+        adapter.ask_with_tools.side_effect = exc
+    elif raise_unsupported:
+        exc = AdapterUnsupportedFeatureError(raise_unsupported)
+        adapter.ask_with_tools.side_effect = exc
+        adapter.ask_structured.side_effect = exc
+        adapter.ask_text.return_value = resp
+    else:
+        adapter.ask_text.return_value = resp
+        adapter.ask_structured.return_value = resp
+        adapter.ask_with_tools.return_value = resp
+    return adapter
+
+
+def _run_step(runner_or_adapter, step_name: str) -> CapabilityProbeStepResult:
+    from backend.app.services.capability_probe.probe_runner import ProbeRunner
+    if isinstance(runner_or_adapter, ProbeRunner):
+        runner = runner_or_adapter
+    else:
+        runner = _make_runner_with_adapter(runner_or_adapter)
     step = CapabilityProbeStepResult(name=step_name)
     runner._dispatch(step)
     return step
@@ -576,9 +620,10 @@ def _run_step(runner, step_name: str) -> CapabilityProbeStepResult:
 
 class TestStructuredJsonStep:
     def test_pass_on_clean_json(self):
-        content = '{"name": "project", "items": [{"id": 1, "label": "alpha"}, {"id": 2, "label": "beta"}]}'
-        runner = _make_runner(lambda *a, **kw: _make_probe_result(content=content))
-        step = _run_step(runner, "structured_json_output")
+        payload = {"name": "project", "items": [{"id": 1, "label": "alpha"}, {"id": 2, "label": "beta"}]}
+        content = json.dumps(payload)
+        adapter = _make_mock_adapter(AdapterResponse(text=content, parsed_json=payload))
+        step = _run_step(adapter, "structured_json_output")
         assert step.assessment == CapabilityAssessment.pass_
         assert step.details["json_mode_clean"] is True
         assert step.details["schema_valid"] is True
@@ -586,39 +631,37 @@ class TestStructuredJsonStep:
     def test_warning_on_fence_wrapped_json(self):
         inner = '{"name": "project", "items": [{"id": 1, "label": "a"}, {"id": 2, "label": "b"}]}'
         content = f"```json\n{inner}\n```"
-        runner = _make_runner(lambda *a, **kw: _make_probe_result(content=content))
-        step = _run_step(runner, "structured_json_output")
+        adapter = _make_mock_adapter(AdapterResponse(text=content, parsed_json=None))
+        step = _run_step(adapter, "structured_json_output")
         assert step.assessment == CapabilityAssessment.warning
         assert step.details["json_mode_clean"] is False
 
     def test_fail_on_non_json_text(self):
-        runner = _make_runner(lambda *a, **kw: _make_probe_result(content="I cannot do that."))
-        step = _run_step(runner, "structured_json_output")
+        adapter = _make_mock_adapter(AdapterResponse(text="I cannot do that.", parsed_json=None))
+        step = _run_step(adapter, "structured_json_output")
         assert step.assessment == CapabilityAssessment.fail
 
     def test_fail_on_null_content(self):
-        runner = _make_runner(lambda *a, **kw: _make_probe_result(content=None))
-        step = _run_step(runner, "structured_json_output")
+        adapter = _make_mock_adapter(AdapterResponse(text="", parsed_json=None))
+        step = _run_step(adapter, "structured_json_output")
         assert step.assessment == CapabilityAssessment.fail
 
     def test_fail_on_empty_content(self):
-        runner = _make_runner(lambda *a, **kw: _make_probe_result(content="   "))
-        step = _run_step(runner, "structured_json_output")
+        adapter = _make_mock_adapter(AdapterResponse(text="   ", parsed_json=None))
+        step = _run_step(adapter, "structured_json_output")
         assert step.assessment == CapabilityAssessment.fail
 
     def test_fail_on_400(self):
-        runner = _make_runner(lambda *a, **kw: _make_probe_result(
-            content=None, http_status=400, error="bad request"
-        ))
-        step = _run_step(runner, "structured_json_output")
+        adapter = _make_mock_adapter(raise_invocation="HTTP 400: bad request")
+        step = _run_step(adapter, "structured_json_output")
         assert step.assessment == CapabilityAssessment.fail
         assert "400" in step.summary
 
     def test_warning_on_schema_mismatch_clean_json(self):
         """JSON parses cleanly but schema is wrong → warning, not pass."""
         content = '{"wrong_key": "oops"}'
-        runner = _make_runner(lambda *a, **kw: _make_probe_result(content=content))
-        step = _run_step(runner, "structured_json_output")
+        adapter = _make_mock_adapter(AdapterResponse(text=content, parsed_json={"wrong_key": "oops"}))
+        step = _run_step(adapter, "structured_json_output")
         assert step.assessment == CapabilityAssessment.warning
         assert step.details["json_mode_clean"] is True
         assert step.details["schema_valid"] is False
@@ -626,39 +669,36 @@ class TestStructuredJsonStep:
 
 class TestToolCallStep:
     def test_pass_on_correct_tool_call(self):
-        tool_calls = [{"function": {"name": "get_weather", "arguments": '{"location": "London"}'}}]
-        runner = _make_runner(lambda *a, **kw: _make_probe_result(tool_calls=tool_calls))
-        step = _run_step(runner, "tool_call_readiness")
+        tc = [ToolCallResult(name="get_weather", arguments={"location": "London"})]
+        adapter = _make_mock_adapter(AdapterResponse(tool_calls=tc))
+        step = _run_step(adapter, "tool_call_readiness")
         assert step.assessment == CapabilityAssessment.pass_
         assert step.status == StepStatus.passed
 
     def test_warning_on_wrong_tool_name(self):
-        tool_calls = [{"function": {"name": "search_web", "arguments": "{}"}}]
-        runner = _make_runner(lambda *a, **kw: _make_probe_result(tool_calls=tool_calls))
-        step = _run_step(runner, "tool_call_readiness")
+        tc = [ToolCallResult(name="search_web", arguments={})]
+        adapter = _make_mock_adapter(AdapterResponse(tool_calls=tc))
+        step = _run_step(adapter, "tool_call_readiness")
         assert step.assessment == CapabilityAssessment.warning
 
     def test_warning_when_model_replies_in_text(self):
-        runner = _make_runner(lambda *a, **kw: _make_probe_result(content="The weather in London is sunny."))
-        step = _run_step(runner, "tool_call_readiness")
+        adapter = _make_mock_adapter(AdapterResponse(text="The weather in London is sunny."))
+        step = _run_step(adapter, "tool_call_readiness")
         assert step.assessment == CapabilityAssessment.warning
 
-    def test_unknown_on_400(self):
-        runner = _make_runner(lambda *a, **kw: _make_probe_result(
-            content=None, http_status=400, error="tools not supported"
-        ))
-        step = _run_step(runner, "tool_call_readiness")
+    def test_unknown_when_adapter_raises_unsupported(self):
+        """Adapter raises AdapterUnsupportedFeatureError → unknown/skipped."""
+        adapter = _make_mock_adapter(raise_unsupported="tool calling not supported")
+        step = _run_step(adapter, "tool_call_readiness")
         assert step.assessment == CapabilityAssessment.unknown
         assert step.status == StepStatus.skipped
 
     def test_fail_on_connection_error(self):
-        runner = _make_runner(lambda *a, **kw: _make_probe_result(
-            content=None, http_status=None, error="Connection refused"
-        ))
-        step = _run_step(runner, "tool_call_readiness")
+        adapter = _make_mock_adapter(raise_invocation="Connection refused")
+        step = _run_step(adapter, "tool_call_readiness")
         assert step.assessment == CapabilityAssessment.fail
 
     def test_fail_on_no_content_no_tool_calls(self):
-        runner = _make_runner(lambda *a, **kw: _make_probe_result(content=None, http_status=200))
-        step = _run_step(runner, "tool_call_readiness")
+        adapter = _make_mock_adapter(AdapterResponse(text="", tool_calls=[]))
+        step = _run_step(adapter, "tool_call_readiness")
         assert step.assessment == CapabilityAssessment.fail
