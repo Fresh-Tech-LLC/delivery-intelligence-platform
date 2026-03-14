@@ -115,7 +115,10 @@ class ModelEngineAskAdapter(LLMAdapter):
         if _engine is not None:
             self._engine = _engine  # test injection only
         else:
+            import os  # noqa: PLC0415
             from ai_server import ModelEngine, ServerClient  # noqa: PLC0415
+            if self._settings.llm_ca_bundle:
+                os.environ["REQUESTS_CA_BUNDLE"] = str(self._settings.llm_ca_bundle)
             ServerClient(
                 base=self._settings.llm_api_base,
                 access_key=self._settings.llm_access_key or None,
