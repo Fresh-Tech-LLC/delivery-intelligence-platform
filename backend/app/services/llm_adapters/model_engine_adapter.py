@@ -36,6 +36,9 @@ from backend.app.services.llm_adapters.base import (
 
 logger = logging.getLogger(__name__)
 
+# Param name used by the SEMOSS server-side wrapper for max output tokens.
+_MAX_TOKENS_PARAM = "max_completion_tokens"
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -53,15 +56,34 @@ def _safe_json(s: Any) -> dict[str, Any]:
         return {}
 
 
+def _extract_text_from_list(items: list) -> str:
+    """
+    Extract the response text from a List[Dict] returned by ModelEngine.ask().
+    Tries common response field names; falls back to str().
+    """
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        for key in ("response", "content", "text", "output", "message"):
+            if key in item and isinstance(item[key], str):
+                return item[key]
+    return str(items)
+
+
 def _normalize_engine_response(raw: Any) -> AdapterResponse:
     """
     Convert a ModelEngine.ask() return value to AdapterResponse.
 
-    The engine may return:
-    - str  : plain text or a JSON string
-    - dict : structured response (may contain a "tool_calls" key)
-    - other: converted via str()
+    ModelEngine.ask() returns List[Dict]. str and dict handled for tests/edge cases.
     """
+    if isinstance(raw, list):
+        text = _extract_text_from_list(raw)
+        parsed = None
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            pass
+        return AdapterResponse(text=text, parsed_json=parsed, raw=raw)
     if isinstance(raw, dict):
         return AdapterResponse(raw=raw, parsed_json=raw)
     if isinstance(raw, str):
@@ -81,16 +103,25 @@ def _normalize_engine_response(raw: Any) -> AdapterResponse:
 
 class ModelEngineAskAdapter(LLMAdapter):
     """
-    Adapter for a ModelEngine wrapper.
+    Adapter for SEMOSS ai-server-sdk ModelEngine.
 
     Structured output: passes param_dict={"schema": schema}
     Tool calling: passes param_dict={"tools": tools, "tool_choice": "auto"}
       — the probe will assess whether the engine actually honors these.
     """
 
-    def __init__(self, engine: Any, settings: Settings | None = None) -> None:
-        self._engine = engine   # injected ModelEngine instance (duck-typed)
+    def __init__(self, settings: Settings | None = None, _engine: Any = None) -> None:
         self._settings = settings or get_settings()
+        if _engine is not None:
+            self._engine = _engine  # test injection only
+        else:
+            from ai_server import ModelEngine, ServerClient  # noqa: PLC0415
+            ServerClient(
+                base=self._settings.llm_api_base,
+                access_key=self._settings.llm_access_key or None,
+                secret_key=self._settings.llm_secret_key or None,
+            )
+            self._engine = ModelEngine(engine_id=self._settings.llm_model_name or None)
 
     def get_name(self) -> str:
         return "model_engine_ask"
@@ -119,7 +150,7 @@ class ModelEngineAskAdapter(LLMAdapter):
         if temperature is not None:
             param_dict["temperature"] = temperature
         if max_tokens is not None:
-            param_dict["max_tokens"] = max_tokens
+            param_dict["max_completion_tokens"] = max_tokens
         try:
             raw = self._engine.ask(
                 command=cmd,
@@ -148,7 +179,7 @@ class ModelEngineAskAdapter(LLMAdapter):
         if temperature is not None:
             param_dict["temperature"] = temperature
         if max_tokens is not None:
-            param_dict["max_tokens"] = max_tokens
+            param_dict["max_completion_tokens"] = max_tokens
         try:
             raw = self._engine.ask(
                 command=cmd,
@@ -184,7 +215,7 @@ class ModelEngineAskAdapter(LLMAdapter):
         if temperature is not None:
             param_dict["temperature"] = temperature
         if max_tokens is not None:
-            param_dict["max_tokens"] = max_tokens
+            param_dict[_MAX_TOKENS_PARAM] = max_tokens
         try:
             raw = self._engine.ask(
                 command=cmd,

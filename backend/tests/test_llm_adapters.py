@@ -117,7 +117,7 @@ class TestAdapterFactory:
     def test_model_engine_adapter_instantiated_with_engine(self):
         """ModelEngineAskAdapter can be constructed directly with an injected engine."""
         engine = MagicMock()
-        adapter = ModelEngineAskAdapter(engine, _mock_settings())
+        adapter = ModelEngineAskAdapter(_mock_settings(), _engine=engine)
         assert adapter.get_name() == "model_engine_ask"
 
 
@@ -221,7 +221,7 @@ class TestModelEngineAskAdapter:
 
     @pytest.fixture
     def adapter(self, engine):
-        return ModelEngineAskAdapter(engine, _mock_settings())
+        return ModelEngineAskAdapter(_mock_settings(), _engine=engine)
 
     def test_ask_text_string_response(self, adapter, engine):
         engine.ask.return_value = "Here is the answer."

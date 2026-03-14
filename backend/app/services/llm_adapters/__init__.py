@@ -56,15 +56,7 @@ def get_llm_adapter() -> LLMAdapter:
     if settings.llm_adapter_type == "openai_chat":
         return OpenAIChatAdapter(settings)
     if settings.llm_adapter_type == "model_engine_ask":
-        try:
-            from backend.app.services.model_engine import get_model_engine  # type: ignore[import]
-            return ModelEngineAskAdapter(get_model_engine(), settings)
-        except ImportError as exc:
-            raise ImportError(
-                "llm_adapter_type='model_engine_ask' requires "
-                "backend.app.services.model_engine to be implemented. "
-                f"Original error: {exc}"
-            ) from exc
+        return ModelEngineAskAdapter(settings)  # loads engine from MODEL_ENGINE_CLASS in .env
     raise ValueError(
         f"Unknown llm_adapter_type: {settings.llm_adapter_type!r}. "
         "Supported values: 'openai_chat', 'model_engine_ask'"

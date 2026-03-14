@@ -162,6 +162,16 @@ class ProbeService:
             runner.run(run_id)
         except Exception as exc:
             logger.exception("ProbeService._execute failed for run %s: %s", run_id, exc)
+            run = self._store.get_run(run_id)
+            if run is not None and run.status not in (
+                ProbeStatus.completed,
+                ProbeStatus.failed,
+            ):
+                run.status = ProbeStatus.failed
+                run.finished_at = _now()
+                run.error = str(exc)[:500]
+                run.current_step = None
+                self._store.save_run(run)
         finally:
             with _lock:
                 _active_run_id = None
