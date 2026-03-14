@@ -7,7 +7,9 @@ after every step so the polling endpoint always reflects the latest state.
 """
 from __future__ import annotations
 
+import json
 import logging
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -22,8 +24,8 @@ from backend.app.models.capability_probe import (
     ProbeStatus,
     StepStatus,
 )
+from backend.app.services.capability_probe.probe_llm_client import ProbeLLMClient
 from backend.app.services.capability_probe.probe_store import ProbeStore
-from backend.app.services.llm_client import LLMClient, LLMError
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +58,8 @@ _GET_WEATHER_TOOL: dict[str, Any] = {
     },
 }
 
+_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
+
 
 # ---------------------------------------------------------------------------
 # Time helpers
@@ -74,6 +78,12 @@ def _elapsed_ms(started_at: str | None) -> float | None:
         return round((datetime.now(timezone.utc) - start).total_seconds() * 1000, 1)
     except Exception:
         return None
+
+
+def _extract_fence(text: str) -> str | None:
+    """Return the first fenced code block content, or None if none found."""
+    m = _FENCE_RE.search(text)
+    return m.group(1).strip() if m else None
 
 
 # ---------------------------------------------------------------------------
@@ -144,12 +154,12 @@ class ProbeRunner:
     def __init__(
         self,
         store: ProbeStore,
-        llm_client: LLMClient,
+        llm_client: Any = None,  # kept for backwards compat — probe uses ProbeLLMClient
         settings: Settings | None = None,
     ) -> None:
         self._store = store
-        self._llm = llm_client
         self._settings = settings or get_settings()
+        self._probe_client = ProbeLLMClient(self._settings)
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -240,35 +250,49 @@ class ProbeRunner:
     def _step_connectivity(self, step: CapabilityProbeStepResult) -> None:
         """Simple connectivity check — minimal prompt, expect any non-empty reply."""
         messages = [{"role": "user", "content": "Reply with the single word OK."}]
-        t0 = time.monotonic()
-        try:
-            response = self._llm.chat(messages, temperature=0.0, max_tokens=5)
-            latency_ms = round((time.monotonic() - t0) * 1000, 1)
-            if response and response.strip():
-                step.status = StepStatus.passed
-                step.assessment = CapabilityAssessment.pass_
-                step.summary = "API reachable and returned a response."
-            else:
-                step.status = StepStatus.failed
-                step.assessment = CapabilityAssessment.fail
-                step.summary = "API returned an empty response."
-            step.details = {"latency_ms": latency_ms, "response_preview": response[:100] if response else ""}
-        except LLMError as exc:
+        result = self._probe_client.send(messages, temperature=0.0, max_tokens=5)
+
+        if result.http_status is not None and result.http_status >= 400:
             step.status = StepStatus.failed
             step.assessment = CapabilityAssessment.fail
-            step.summary = f"API unreachable or auth failed: {str(exc)[:300]}"
-            step.details = {"error": str(exc)[:500]}
+            step.summary = f"API returned HTTP {result.http_status}: {(result.error or '')[:300]}"
+        elif result.error:
+            step.status = StepStatus.failed
+            step.assessment = CapabilityAssessment.fail
+            step.summary = f"API unreachable: {result.error[:300]}"
+        elif result.content and result.content.strip():
+            step.status = StepStatus.passed
+            step.assessment = CapabilityAssessment.pass_
+            step.summary = "API reachable and returned a response."
+        else:
+            step.status = StepStatus.failed
+            step.assessment = CapabilityAssessment.fail
+            step.summary = "API returned null or empty content."
+
+        step.details = {
+            "latency_ms": result.latency_ms,
+            "http_status": result.http_status,
+            "response_preview": (result.content or "")[:200],
+            "error": result.error,
+        }
 
     def _step_simple_generation(self, step: CapabilityProbeStepResult) -> None:
         """Basic generation quality and latency check."""
         messages = [
             {"role": "user", "content": "Describe the role of a product owner in one sentence."}
         ]
-        t0 = time.monotonic()
-        try:
-            response = self._llm.chat(messages, temperature=0.7, max_tokens=100)
-            latency_ms = round((time.monotonic() - t0) * 1000, 1)
-            length = len(response.strip()) if response else 0
+        result = self._probe_client.send(messages, temperature=0.7, max_tokens=100)
+
+        if result.http_status is not None and result.http_status >= 400:
+            step.status = StepStatus.failed
+            step.assessment = CapabilityAssessment.fail
+            step.summary = f"Generation request failed (HTTP {result.http_status}): {(result.error or '')[:300]}"
+        elif result.error:
+            step.status = StepStatus.failed
+            step.assessment = CapabilityAssessment.fail
+            step.summary = f"Generation failed: {result.error[:300]}"
+        else:
+            length = len(result.content.strip()) if result.content else 0
             if length > 20:
                 step.status = StepStatus.passed
                 step.assessment = CapabilityAssessment.pass_
@@ -280,27 +304,18 @@ class ProbeRunner:
             else:
                 step.status = StepStatus.failed
                 step.assessment = CapabilityAssessment.fail
-                step.summary = "Model returned an empty response."
-            step.details = {
-                "latency_ms": latency_ms,
-                "response_length": length,
-                "response_preview": (response or "")[:300],
-            }
-        except LLMError as exc:
-            step.status = StepStatus.failed
-            step.assessment = CapabilityAssessment.fail
-            step.summary = f"Generation failed: {str(exc)[:300]}"
-            step.details = {"error": str(exc)[:500]}
+                step.summary = "Model returned null or empty content."
+
+        step.details = {
+            "latency_ms": result.latency_ms,
+            "http_status": result.http_status,
+            "response_length": len((result.content or "").strip()),
+            "response_preview": (result.content or "")[:300],
+            "error": result.error,
+        }
 
     def _step_deterministic_generation(self, step: CapabilityProbeStepResult) -> None:
         """Run the same low-temperature prompt twice and compare outputs."""
-        if not self._settings.llm_temperature_supported:
-            step.status = StepStatus.skipped
-            step.assessment = CapabilityAssessment.unknown
-            step.summary = "Skipped: temperature parameter not supported by this integration."
-            step.details = {"reason": "llm_temperature_supported=False"}
-            return
-
         prompt = (
             'List three primary colors. Reply with only a JSON array of strings, '
             'e.g. ["red", "green", "blue"].'
@@ -310,54 +325,114 @@ class ProbeRunner:
         def _normalize(s: str) -> str:
             return " ".join(s.lower().split())
 
-        try:
-            run1 = self._llm.chat(messages, temperature=0.0, max_tokens=50)
-            run2 = self._llm.chat(messages, temperature=0.0, max_tokens=50)
-        except LLMError as exc:
+        result1 = self._probe_client.send(messages, temperature=0.0, max_tokens=150)
+        result2 = self._probe_client.send(messages, temperature=0.0, max_tokens=150)
+
+        # Treat any error or empty result as failure.
+        if result1.error or result2.error or not result1.content or not result2.content:
             step.status = StepStatus.failed
             step.assessment = CapabilityAssessment.fail
-            step.summary = f"Deterministic generation failed: {str(exc)[:300]}"
-            step.details = {"error": str(exc)[:500]}
+            step.summary = "One or both runs failed or returned empty output."
+            step.details = {
+                "run1_error": result1.error,
+                "run2_error": result2.error,
+                "run1_http_status": result1.http_status,
+                "run2_http_status": result2.http_status,
+            }
             return
 
-        n1, n2 = _normalize(run1), _normalize(run2)
+        n1, n2 = _normalize(result1.content), _normalize(result2.content)
         identical = n1 == n2
 
         if identical:
             step.status = StepStatus.passed
             step.assessment = CapabilityAssessment.pass_
             step.summary = "Both low-temperature runs produced identical normalized output."
-        elif run1.strip() and run2.strip():
-            # Both non-empty but different — warning, not a hard failure.
+        else:
             step.status = StepStatus.warning
             step.assessment = CapabilityAssessment.warning
             step.summary = "Low-temperature runs produced different outputs (non-deterministic)."
-        else:
-            step.status = StepStatus.failed
-            step.assessment = CapabilityAssessment.fail
-            step.summary = "One or both low-temperature runs returned empty output."
 
         step.details = {
             "identical": identical,
-            "run1_preview": run1[:200],
-            "run2_preview": run2[:200],
+            "run1_preview": result1.content[:200],
+            "run2_preview": result2.content[:200],
         }
 
     def _step_structured_json(self, step: CapabilityProbeStepResult) -> None:
-        """Verify the model can emit valid JSON conforming to a simple nested schema."""
+        """
+        Verify the model can emit valid JSON when json_mode is requested.
+
+        Assessment:
+        - pass    : response parses as valid JSON directly (no fences, no repair)
+        - warning : response wrapped in markdown fences but contains valid JSON inside
+        - fail    : HTTP error, null/empty content, or content is not valid JSON at all
+        """
         prompt = (
             "Return valid JSON only — no prose, no markdown fences.\n"
             'Schema: {"name": "<non-empty string>", "items": [{"id": <integer>, "label": "<string>"}, ...]}\n'
             "Include at least 2 items. Use any realistic values."
         )
         messages = [{"role": "user", "content": prompt}]
-        try:
-            data = self._llm.chat_json(messages, temperature=0.1, max_tokens=300)
-        except LLMError as exc:
+        result = self._probe_client.send(
+            messages, temperature=0.1, max_tokens=300, json_mode=True
+        )
+
+        if result.http_status is not None and result.http_status >= 400:
             step.status = StepStatus.failed
             step.assessment = CapabilityAssessment.fail
-            step.summary = f"JSON output failed to parse: {str(exc)[:300]}"
-            step.details = {"error": str(exc)[:500]}
+            step.summary = f"json_mode request rejected (HTTP {result.http_status}): {(result.error or '')[:300]}"
+            step.details = {
+                "http_status": result.http_status,
+                "error": result.error,
+                "raw_content_preview": None,
+                "json_mode_clean": False,
+                "schema_valid": False,
+            }
+            return
+
+        if result.content is None or result.content.strip() == "":
+            step.status = StepStatus.failed
+            step.assessment = CapabilityAssessment.fail
+            step.summary = "json_mode returned null or empty content."
+            step.details = {
+                "http_status": result.http_status,
+                "error": result.error,
+                "raw_content_preview": None,
+                "json_mode_clean": False,
+                "schema_valid": False,
+            }
+            return
+
+        raw = result.content
+        raw_preview = raw[:500]
+        json_mode_clean = False
+        schema_valid = False
+        data = None
+
+        # Attempt 1: strict parse (no manipulation — clean json_mode output)
+        try:
+            data = json.loads(raw)
+            json_mode_clean = True
+        except json.JSONDecodeError:
+            # Attempt 2: try fence-stripped version
+            stripped = _extract_fence(raw)
+            if stripped:
+                try:
+                    data = json.loads(stripped)
+                except json.JSONDecodeError:
+                    pass
+
+        if data is None:
+            step.status = StepStatus.failed
+            step.assessment = CapabilityAssessment.fail
+            step.summary = "json_mode active but response is not valid JSON."
+            step.details = {
+                "http_status": result.http_status,
+                "raw_content_preview": raw_preview,
+                "json_mode_clean": False,
+                "schema_valid": False,
+            }
             return
 
         # Validate schema
@@ -368,7 +443,6 @@ class ProbeRunner:
         items_schema_ok = items_ok and all(
             isinstance(it, dict) and "id" in it and "label" in it for it in (items or [])
         )
-
         if not name_ok:
             issues.append("'name' missing or not a non-empty string")
         if not items_ok:
@@ -376,20 +450,35 @@ class ProbeRunner:
         elif not items_schema_ok:
             issues.append("one or more items missing 'id' or 'label'")
 
-        if not issues:
+        schema_valid = not bool(issues)
+
+        if json_mode_clean and schema_valid:
             step.status = StepStatus.passed
             step.assessment = CapabilityAssessment.pass_
-            step.summary = f"Valid JSON with {len(items or [])} item(s) matching schema."
-        else:
+            step.summary = f"Model returned clean JSON matching schema ({len(items or [])} item(s))."
+        elif json_mode_clean and not schema_valid:
             step.status = StepStatus.warning
             step.assessment = CapabilityAssessment.warning
-            step.summary = "JSON parsed but schema incomplete: " + "; ".join(issues)
+            step.summary = "JSON parsed cleanly but schema incomplete: " + "; ".join(issues)
+        else:
+            # Fence-wrapped but valid JSON
+            step.status = StepStatus.warning
+            step.assessment = CapabilityAssessment.warning
+            if schema_valid:
+                step.summary = "json_mode active but model wrapped response in markdown fences."
+            else:
+                step.summary = (
+                    "json_mode active, model wrapped response in fences, and schema is incomplete: "
+                    + "; ".join(issues)
+                )
 
         step.details = {
-            "parsed_keys": list(data.keys()) if isinstance(data, dict) else [],
-            "items_count": len(items) if isinstance(items, list) else 0,
-            "schema_valid": not bool(issues),
+            "http_status": result.http_status,
+            "raw_content_preview": raw_preview,
+            "json_mode_clean": json_mode_clean,
+            "schema_valid": schema_valid,
             "issues": issues,
+            "items_count": len(items) if isinstance(items, list) else 0,
         }
 
     def _step_long_context_smoke(self, step: CapabilityProbeStepResult) -> None:
@@ -405,7 +494,6 @@ class ProbeRunner:
             "Teams should reference this code in all status updates and milestone reports."
         )
         smoke_size = self._settings.probe_context_smoke_size
-        # Mix the signal paragraph among filler to make it non-trivial.
         filler = (
             "The delivery team follows an iterative approach with two-week sprint cycles. "
             "Stakeholders review progress at regular cadence meetings held each Friday."
@@ -425,32 +513,46 @@ class ProbeRunner:
             "Reply with the code only."
         )
         messages = [{"role": "user", "content": prompt}]
+        result = self._probe_client.send(messages, temperature=0.0, max_tokens=50)
 
-        try:
-            response = self._llm.chat(messages, temperature=0.0, max_tokens=20)
-            signal_found = signal in (response or "")
-            if signal_found:
-                step.status = StepStatus.passed
-                step.assessment = CapabilityAssessment.pass_
-                step.summary = f"Correctly extracted signal from ~{context_chars}-char context."
-            elif response and response.strip():
-                step.status = StepStatus.warning
-                step.assessment = CapabilityAssessment.warning
-                step.summary = "Model responded but did not extract the correct signal."
-            else:
-                step.status = StepStatus.failed
-                step.assessment = CapabilityAssessment.fail
-                step.summary = "Model returned empty response for context retrieval prompt."
-            step.details = {
-                "context_chars": context_chars,
-                "signal_found": signal_found,
-                "response_preview": (response or "")[:100],
-            }
-        except LLMError as exc:
+        if result.http_status is not None and result.http_status >= 400:
             step.status = StepStatus.failed
             step.assessment = CapabilityAssessment.fail
-            step.summary = f"Context smoke test failed: {str(exc)[:300]}"
-            step.details = {"context_chars": context_chars, "error": str(exc)[:500]}
+            step.summary = f"Context smoke test rejected (HTTP {result.http_status}): {(result.error or '')[:300]}"
+            step.details = {
+                "context_chars": context_chars,
+                "http_status": result.http_status,
+                "error": result.error,
+            }
+            return
+
+        if result.error:
+            step.status = StepStatus.failed
+            step.assessment = CapabilityAssessment.fail
+            step.summary = f"Context smoke test failed: {result.error[:300]}"
+            step.details = {"context_chars": context_chars, "error": result.error}
+            return
+
+        signal_found = signal in (result.content or "")
+        if signal_found:
+            step.status = StepStatus.passed
+            step.assessment = CapabilityAssessment.pass_
+            step.summary = f"Correctly extracted signal from ~{context_chars}-char context."
+        elif result.content and result.content.strip():
+            step.status = StepStatus.warning
+            step.assessment = CapabilityAssessment.warning
+            step.summary = "Model responded but did not extract the correct signal."
+        else:
+            step.status = StepStatus.failed
+            step.assessment = CapabilityAssessment.fail
+            step.summary = "Model returned null or empty response for context retrieval prompt."
+
+        step.details = {
+            "context_chars": context_chars,
+            "http_status": result.http_status,
+            "signal_found": signal_found,
+            "response_preview": (result.content or "")[:100],
+        }
 
     def _step_tool_call_readiness(self, step: CapabilityProbeStepResult) -> None:
         """
@@ -458,40 +560,40 @@ class ProbeRunner:
 
         If the API rejects the tools payload with a 4xx error, the integration
         does not expose tool calling — mark as skipped/unknown (not failed).
-        A wrapper limitation is not a model failure.
+        A gateway limitation is not a model failure.
         """
         messages = [{"role": "user", "content": "What is the weather in London right now?"}]
-        try:
-            message = self._llm.chat_with_tools(
-                messages,
-                tools=[_GET_WEATHER_TOOL],
-                temperature=0.0,
-                max_tokens=100,
-            )
-        except LLMError as exc:
-            err_str = str(exc)
-            # 4xx errors indicate the integration doesn't support the tools param.
-            if any(f"HTTP error {c}" in err_str or f"HTTP {c}" in err_str
-                   for c in ["400", "422", "415", "501"]):
-                step.status = StepStatus.skipped
-                step.assessment = CapabilityAssessment.unknown
-                step.summary = "Tool calling is not exposed by the current integration."
-                step.details = {"reason": "API rejected tools payload", "error": err_str[:300]}
-            else:
-                step.status = StepStatus.failed
-                step.assessment = CapabilityAssessment.fail
-                step.summary = f"Tool call request failed unexpectedly: {err_str[:300]}"
-                step.details = {"error": err_str[:500]}
+        result = self._probe_client.send(
+            messages, temperature=0.0, max_tokens=100, tools=[_GET_WEATHER_TOOL]
+        )
+
+        if result.http_status is not None and result.http_status >= 400:
+            step.status = StepStatus.skipped
+            step.assessment = CapabilityAssessment.unknown
+            step.summary = f"Tool calling not supported by this integration (HTTP {result.http_status})."
+            step.details = {
+                "http_status": result.http_status,
+                "error": result.error,
+                "raw_response_preview": str(result.raw_response or "")[:500],
+            }
             return
 
-        tool_calls = message.get("tool_calls") or []
-        if tool_calls:
-            first = tool_calls[0]
+        if result.error:
+            step.status = StepStatus.failed
+            step.assessment = CapabilityAssessment.fail
+            step.summary = f"Tool call request failed: {result.error[:300]}"
+            step.details = {
+                "http_status": result.http_status,
+                "error": result.error,
+            }
+            return
+
+        if result.tool_calls:
+            first = result.tool_calls[0]
             fn = first.get("function", {})
             tool_name = fn.get("name", "")
             args_preview = str(fn.get("arguments", ""))[:200]
-            called_correctly = tool_name == "get_weather"
-            if called_correctly:
+            if tool_name == "get_weather":
                 step.status = StepStatus.passed
                 step.assessment = CapabilityAssessment.pass_
                 step.summary = f"Model correctly invoked tool '{tool_name}'."
@@ -500,17 +602,27 @@ class ProbeRunner:
                 step.assessment = CapabilityAssessment.warning
                 step.summary = f"Tool called but unexpected name: '{tool_name}'."
             step.details = {
+                "http_status": result.http_status,
                 "tool_called": True,
                 "tool_name": tool_name,
                 "tool_args_preview": args_preview,
+                "content_preview": (result.content or "")[:200],
             }
-        else:
-            # Model replied in text instead of using the tool.
-            content_preview = str(message.get("content") or "")[:200]
+        elif result.content:
             step.status = StepStatus.warning
             step.assessment = CapabilityAssessment.warning
-            step.summary = "Model replied in text rather than invoking the tool."
+            step.summary = "Model replied in text rather than invoking the tool (tool_choice may be unsupported)."
             step.details = {
+                "http_status": result.http_status,
                 "tool_called": False,
-                "response_preview": content_preview,
+                "content_preview": result.content[:200],
+            }
+        else:
+            step.status = StepStatus.failed
+            step.assessment = CapabilityAssessment.fail
+            step.summary = "No tool call and no content returned."
+            step.details = {
+                "http_status": result.http_status,
+                "tool_called": False,
+                "raw_response_preview": str(result.raw_response or "")[:500],
             }

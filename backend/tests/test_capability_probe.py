@@ -6,6 +6,8 @@ Covers:
 2. Report grading logic (multiple scenarios)
 3. ProbeStore file I/O (uses tmp_path)
 4. Route tests via FastAPI TestClient (mock probe service)
+5. ProbeLLMClient behaviour (mocked httpx)
+6. Honest step assessment logic (structured_json_output, tool_call_readiness)
 
 Run with:
     cd backend
@@ -385,3 +387,278 @@ class TestRoutes:
         assert data["status"] == "completed"
         assert "completed_steps" in data
         assert "steps" in data
+
+
+# ---------------------------------------------------------------------------
+# 5. ProbeLLMClient behaviour
+# ---------------------------------------------------------------------------
+
+
+def _ok_response(content: str | None = "OK", tool_calls=None) -> dict:
+    """Build a minimal OpenAI-compatible 200 response body."""
+    return {
+        "choices": [
+            {
+                "message": {
+                    "content": content,
+                    "tool_calls": tool_calls,
+                }
+            }
+        ]
+    }
+
+
+class TestProbeLLMClient:
+    """Unit tests for ProbeLLMClient using mocked httpx."""
+
+    @pytest.fixture
+    def client(self):
+        from backend.app.services.capability_probe.probe_llm_client import ProbeLLMClient
+        settings = MagicMock()
+        settings.llm_api_base = "https://fake.llm/v1"
+        settings.llm_access_key = None
+        settings.llm_secret_key = None
+        settings.llm_api_key = "test-key"
+        settings.llm_model_name = "test-model"
+        settings.llm_max_tokens_param = "max_tokens"
+        settings.probe_step_timeout = 30
+        settings.llm_ca_bundle = None
+        return ProbeLLMClient(settings)
+
+    def _mock_resp(self, status_code: int, body: dict | None = None, text: str = ""):
+        resp = MagicMock()
+        resp.status_code = status_code
+        if body is not None:
+            resp.json.return_value = body
+        else:
+            resp.json.side_effect = Exception("not json")
+        resp.text = text
+        return resp
+
+    def test_returns_content_on_200(self, client):
+        resp = self._mock_resp(200, _ok_response("Hello"))
+        with patch("httpx.Client") as mock_cls:
+            mock_cls.return_value.__enter__.return_value.post.return_value = resp
+            result = client.send([{"role": "user", "content": "hi"}])
+        assert result.content == "Hello"
+        assert result.http_status == 200
+        assert result.error is None
+        assert result.ok is True
+
+    def test_returns_none_content_when_null(self, client):
+        """content=null is valid for tool-call-only responses."""
+        resp = self._mock_resp(200, _ok_response(content=None, tool_calls=[{"type": "function"}]))
+        with patch("httpx.Client") as mock_cls:
+            mock_cls.return_value.__enter__.return_value.post.return_value = resp
+            result = client.send([{"role": "user", "content": "hi"}])
+        assert result.content is None
+        assert result.tool_calls is not None
+        assert result.error is None
+
+    def test_returns_tool_calls_when_present(self, client):
+        tool_calls = [{"type": "function", "function": {"name": "get_weather", "arguments": "{}"}}]
+        resp = self._mock_resp(200, _ok_response(content=None, tool_calls=tool_calls))
+        with patch("httpx.Client") as mock_cls:
+            mock_cls.return_value.__enter__.return_value.post.return_value = resp
+            result = client.send([{"role": "user", "content": "weather?"}], tools=[{}])
+        assert result.tool_calls == tool_calls
+
+    def test_returns_error_on_400(self, client):
+        resp = self._mock_resp(400, {"error": {"message": "bad request"}})
+        with patch("httpx.Client") as mock_cls:
+            mock_cls.return_value.__enter__.return_value.post.return_value = resp
+            result = client.send([{"role": "user", "content": "hi"}])
+        assert result.http_status == 400
+        assert result.error == "bad request"
+        assert result.content is None
+        assert result.ok is False
+
+    def test_returns_error_on_timeout(self, client):
+        import httpx
+        with patch("httpx.Client") as mock_cls:
+            mock_cls.return_value.__enter__.return_value.post.side_effect = httpx.TimeoutException("timed out")
+            result = client.send([{"role": "user", "content": "hi"}])
+        assert result.http_status is None
+        assert result.error is not None
+        assert "timed out" in result.error.lower() or "timeout" in result.error.lower()
+        assert result.ok is False
+
+    def test_payload_sent_excludes_auth(self, client):
+        resp = self._mock_resp(200, _ok_response("hi"))
+        with patch("httpx.Client") as mock_cls:
+            mock_cls.return_value.__enter__.return_value.post.return_value = resp
+            result = client.send([{"role": "user", "content": "hi"}])
+        assert "Authorization" not in result.payload_sent
+        assert "model" in result.payload_sent
+
+    def test_no_retries_on_5xx(self, client):
+        resp = self._mock_resp(503, {"error": {"message": "service unavailable"}})
+        with patch("httpx.Client") as mock_cls:
+            mock_inst = mock_cls.return_value.__enter__.return_value
+            mock_inst.post.return_value = resp
+            result = client.send([{"role": "user", "content": "hi"}])
+        assert mock_inst.post.call_count == 1
+        assert result.http_status == 503
+
+    def test_json_mode_adds_response_format(self, client):
+        resp = self._mock_resp(200, _ok_response('{"a": 1}'))
+        with patch("httpx.Client") as mock_cls:
+            mock_cls.return_value.__enter__.return_value.post.return_value = resp
+            result = client.send([{"role": "user", "content": "hi"}], json_mode=True)
+        assert result.payload_sent.get("response_format") == {"type": "json_object"}
+
+    def test_tools_adds_tool_choice(self, client):
+        resp = self._mock_resp(200, _ok_response())
+        with patch("httpx.Client") as mock_cls:
+            mock_cls.return_value.__enter__.return_value.post.return_value = resp
+            result = client.send([{"role": "user", "content": "hi"}], tools=[{"type": "function"}])
+        assert "tool_choice" in result.payload_sent
+        assert result.payload_sent["tool_choice"] == "auto"
+
+    def test_temperature_always_sent(self, client):
+        """Temperature must be included unconditionally — no settings gate."""
+        resp = self._mock_resp(200, _ok_response())
+        with patch("httpx.Client") as mock_cls:
+            mock_cls.return_value.__enter__.return_value.post.return_value = resp
+            result = client.send([{"role": "user", "content": "hi"}], temperature=0.7)
+        assert result.payload_sent.get("temperature") == 0.7
+
+    def test_seed_not_included(self, client):
+        """llm_seed must never be sent by ProbeLLMClient."""
+        resp = self._mock_resp(200, _ok_response())
+        with patch("httpx.Client") as mock_cls:
+            mock_cls.return_value.__enter__.return_value.post.return_value = resp
+            result = client.send([{"role": "user", "content": "hi"}])
+        assert "seed" not in result.payload_sent
+
+
+# ---------------------------------------------------------------------------
+# 6. Honest step assessment logic
+# ---------------------------------------------------------------------------
+
+
+def _make_probe_result(
+    content: str | None = None,
+    tool_calls=None,
+    raw_response=None,
+    http_status: int | None = 200,
+    error: str | None = None,
+    latency_ms: float = 50.0,
+):
+    from backend.app.services.capability_probe.probe_llm_client import ProbeCallResult
+    return ProbeCallResult(
+        content=content,
+        tool_calls=tool_calls,
+        raw_response=raw_response,
+        http_status=http_status,
+        error=error,
+        latency_ms=latency_ms,
+    )
+
+
+def _make_runner(mock_send_side_effect):
+    """Return a ProbeRunner whose _probe_client.send is replaced with a mock."""
+    from backend.app.services.capability_probe.probe_runner import ProbeRunner
+    store = MagicMock()
+    settings = MagicMock()
+    settings.probe_context_smoke_size = 5
+    runner = ProbeRunner(store=store, settings=settings)
+    runner._probe_client = MagicMock()
+    runner._probe_client.send.side_effect = mock_send_side_effect
+    return runner
+
+
+def _run_step(runner, step_name: str) -> CapabilityProbeStepResult:
+    step = CapabilityProbeStepResult(name=step_name)
+    runner._dispatch(step)
+    return step
+
+
+class TestStructuredJsonStep:
+    def test_pass_on_clean_json(self):
+        content = '{"name": "project", "items": [{"id": 1, "label": "alpha"}, {"id": 2, "label": "beta"}]}'
+        runner = _make_runner(lambda *a, **kw: _make_probe_result(content=content))
+        step = _run_step(runner, "structured_json_output")
+        assert step.assessment == CapabilityAssessment.pass_
+        assert step.details["json_mode_clean"] is True
+        assert step.details["schema_valid"] is True
+
+    def test_warning_on_fence_wrapped_json(self):
+        inner = '{"name": "project", "items": [{"id": 1, "label": "a"}, {"id": 2, "label": "b"}]}'
+        content = f"```json\n{inner}\n```"
+        runner = _make_runner(lambda *a, **kw: _make_probe_result(content=content))
+        step = _run_step(runner, "structured_json_output")
+        assert step.assessment == CapabilityAssessment.warning
+        assert step.details["json_mode_clean"] is False
+
+    def test_fail_on_non_json_text(self):
+        runner = _make_runner(lambda *a, **kw: _make_probe_result(content="I cannot do that."))
+        step = _run_step(runner, "structured_json_output")
+        assert step.assessment == CapabilityAssessment.fail
+
+    def test_fail_on_null_content(self):
+        runner = _make_runner(lambda *a, **kw: _make_probe_result(content=None))
+        step = _run_step(runner, "structured_json_output")
+        assert step.assessment == CapabilityAssessment.fail
+
+    def test_fail_on_empty_content(self):
+        runner = _make_runner(lambda *a, **kw: _make_probe_result(content="   "))
+        step = _run_step(runner, "structured_json_output")
+        assert step.assessment == CapabilityAssessment.fail
+
+    def test_fail_on_400(self):
+        runner = _make_runner(lambda *a, **kw: _make_probe_result(
+            content=None, http_status=400, error="bad request"
+        ))
+        step = _run_step(runner, "structured_json_output")
+        assert step.assessment == CapabilityAssessment.fail
+        assert "400" in step.summary
+
+    def test_warning_on_schema_mismatch_clean_json(self):
+        """JSON parses cleanly but schema is wrong → warning, not pass."""
+        content = '{"wrong_key": "oops"}'
+        runner = _make_runner(lambda *a, **kw: _make_probe_result(content=content))
+        step = _run_step(runner, "structured_json_output")
+        assert step.assessment == CapabilityAssessment.warning
+        assert step.details["json_mode_clean"] is True
+        assert step.details["schema_valid"] is False
+
+
+class TestToolCallStep:
+    def test_pass_on_correct_tool_call(self):
+        tool_calls = [{"function": {"name": "get_weather", "arguments": '{"location": "London"}'}}]
+        runner = _make_runner(lambda *a, **kw: _make_probe_result(tool_calls=tool_calls))
+        step = _run_step(runner, "tool_call_readiness")
+        assert step.assessment == CapabilityAssessment.pass_
+        assert step.status == StepStatus.passed
+
+    def test_warning_on_wrong_tool_name(self):
+        tool_calls = [{"function": {"name": "search_web", "arguments": "{}"}}]
+        runner = _make_runner(lambda *a, **kw: _make_probe_result(tool_calls=tool_calls))
+        step = _run_step(runner, "tool_call_readiness")
+        assert step.assessment == CapabilityAssessment.warning
+
+    def test_warning_when_model_replies_in_text(self):
+        runner = _make_runner(lambda *a, **kw: _make_probe_result(content="The weather in London is sunny."))
+        step = _run_step(runner, "tool_call_readiness")
+        assert step.assessment == CapabilityAssessment.warning
+
+    def test_unknown_on_400(self):
+        runner = _make_runner(lambda *a, **kw: _make_probe_result(
+            content=None, http_status=400, error="tools not supported"
+        ))
+        step = _run_step(runner, "tool_call_readiness")
+        assert step.assessment == CapabilityAssessment.unknown
+        assert step.status == StepStatus.skipped
+
+    def test_fail_on_connection_error(self):
+        runner = _make_runner(lambda *a, **kw: _make_probe_result(
+            content=None, http_status=None, error="Connection refused"
+        ))
+        step = _run_step(runner, "tool_call_readiness")
+        assert step.assessment == CapabilityAssessment.fail
+
+    def test_fail_on_no_content_no_tool_calls(self):
+        runner = _make_runner(lambda *a, **kw: _make_probe_result(content=None, http_status=200))
+        step = _run_step(runner, "tool_call_readiness")
+        assert step.assessment == CapabilityAssessment.fail
