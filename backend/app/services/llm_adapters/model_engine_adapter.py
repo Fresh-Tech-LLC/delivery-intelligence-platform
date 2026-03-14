@@ -67,6 +67,7 @@ def _extract_text_from_list(items: list) -> str:
         for key in ("response", "content", "text", "output", "message"):
             if key in item and isinstance(item[key], str):
                 return item[key]
+    logger.warning("Could not extract text from ModelEngine response — keys found: %s", [list(i.keys()) for i in items if isinstance(i, dict)])
     return str(items)
 
 
@@ -85,7 +86,24 @@ def _normalize_engine_response(raw: Any) -> AdapterResponse:
             pass
         return AdapterResponse(text=text, parsed_json=parsed, raw=raw)
     if isinstance(raw, dict):
-        return AdapterResponse(raw=raw, parsed_json=raw)
+        # Prefer assembling from parts (e.g. Vertex/Gemini streaming chunks).
+        parts = raw.get("parts")
+        if isinstance(parts, list):
+            text = "".join(
+                p["text"] for p in parts if isinstance(p, dict) and isinstance(p.get("text"), str)
+            )
+        else:
+            text = ""
+            for key in ("response", "content", "text", "output", "message"):
+                if key in raw and isinstance(raw[key], str):
+                    text = raw[key]
+                    break
+        parsed = None
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            pass
+        return AdapterResponse(text=text, parsed_json=parsed, raw=raw)
     if isinstance(raw, str):
         parsed = None
         try:

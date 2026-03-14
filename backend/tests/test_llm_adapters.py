@@ -235,9 +235,9 @@ class TestModelEngineAskAdapter:
         assert response.parsed_json == {"result": "ok"}
 
     def test_ask_text_dict_response(self, adapter, engine):
-        engine.ask.return_value = {"answer": 42}
+        engine.ask.return_value = {"parts": [{"text": "The answer is", "type": "TEXT"}, {"text": " 42.", "type": "TEXT"}]}
         response = adapter.ask_text("Dict response")
-        assert response.parsed_json == {"answer": 42}
+        assert response.text == "The answer is 42."
 
     def test_ask_text_engine_error_raises(self, adapter, engine):
         engine.ask.side_effect = RuntimeError("engine down")
