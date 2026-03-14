@@ -242,8 +242,47 @@ tr:hover td { background: #f8fafc; }
 }
 .story-card .meta { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
 .requirements-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.requirements-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.requirements-card-header .card-title {
+  margin-bottom: 0;
+}
+.create-workspace-toggle {
+  min-width: 220px;
+}
+.create-workspace-toggle summary {
+  list-style: none;
+}
+.create-workspace-toggle summary::-webkit-details-marker {
+  display: none;
+}
+.create-workspace-panel {
+  margin-top: 1rem;
+}
+.create-workspace-toggle[open] summary {
+  margin-bottom: 0;
+}
 .stack-list { margin-top: 1rem; }
 @media (max-width: 800px) { .requirements-grid { grid-template-columns: 1fr; } }
+@media (max-width: 800px) {
+  .requirements-card-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .create-workspace-toggle {
+    width: 100%;
+    min-width: 0;
+  }
+  .create-workspace-toggle summary {
+    width: 100%;
+    text-align: center;
+  }
+}
 
 .tag {
   display: inline-block;

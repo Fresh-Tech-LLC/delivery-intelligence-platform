@@ -58,6 +58,7 @@ class LLMClient:
         json_mode: bool = False,
         temperature: float = 0.2,
         max_tokens: Optional[int] = None,
+        tools: Optional[list[dict[str, Any]]] = None,
     ) -> dict[str, Any]:
         resolved_max_tokens = self._settings.llm_max_tokens if max_tokens is None else max_tokens
         payload: dict[str, Any] = {
@@ -71,6 +72,9 @@ class LLMClient:
             payload["seed"] = self._settings.llm_seed
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
         return payload
 
     def chat(
@@ -186,6 +190,75 @@ class LLMClient:
                 raise LLMError(
                     f"LLM produced invalid JSON after repair attempt: {second_err}"
                 ) from second_err
+
+    def chat_with_tools(
+        self,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]],
+        *,
+        model_name: Optional[str] = None,
+        temperature: float = 0.2,
+        max_tokens: Optional[int] = None,
+    ) -> dict[str, Any]:
+        """
+        Send a chat completion request with tool definitions.
+
+        Returns the full assistant message dict (choices[0]["message"]), which may contain:
+          - "content": str   — if the model replied in plain text
+          - "tool_calls": list[dict] — if the model invoked a tool
+
+        Retries on transient errors identically to chat().
+        """
+        url = f"{self._base_url}/chat/completions"
+        payload = self._build_payload(
+            messages,
+            model_name=model_name,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            tools=tools,
+        )
+        logger.debug(
+            "LLM tool-call request url=%s headers=%s",
+            url,
+            redact_auth(self._headers),
+        )
+
+        last_exc: Optional[Exception] = None
+        for attempt in range(self._settings.llm_max_retries + 1):
+            try:
+                with httpx.Client(
+                    timeout=self._settings.llm_timeout,
+                    verify=self._settings.llm_ca_bundle or True,
+                ) as client:
+                    resp = client.post(url, headers=self._headers, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+                message: dict[str, Any] = data["choices"][0]["message"]
+                logger.debug("LLM tool-call response received (attempt %d)", attempt + 1)
+                return message
+            except httpx.TimeoutException as exc:
+                last_exc = exc
+                logger.warning("LLM tool-call timeout on attempt %d: %s", attempt + 1, exc)
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                body = exc.response.text
+                logger.error("LLM tool-call HTTP %d response body: %s", status, body)
+                if status in (429, 502, 503, 504):
+                    last_exc = exc
+                    wait = 2 ** attempt
+                    logger.warning(
+                        "LLM tool-call HTTP %d on attempt %d; retrying in %ds",
+                        status, attempt + 1, wait,
+                    )
+                    time.sleep(wait)
+                else:
+                    raise LLMError(f"LLM tool-call HTTP error {status}: {body}") from exc
+            except Exception as exc:
+                raise LLMError(f"LLM tool-call unexpected error: {exc}") from exc
+
+        raise LLMError(
+            f"LLM tool-call failed after {self._settings.llm_max_retries + 1} attempts: {last_exc}"
+        )
 
     def _preview(self, text: str, limit: int = 800) -> str:
         """Return a single-line, truncated preview safe for debug logs."""

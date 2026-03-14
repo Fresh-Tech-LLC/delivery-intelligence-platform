@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+{% block title %}Probe Run {{ run.run_id[:12] }} | DIP Admin{% endblock %}
+
+{% block content %}
+
+{# ── Summary card ─────────────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:1rem;">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:1rem;">
+    <div>
+      <div class="card-title">Probe Run</div>
+      <div style="font-family:monospace;font-size:0.85rem;color:var(--muted);">{{ run.run_id }}</div>
+      <div class="meta-row" style="margin-top:0.5rem;">
+        {% if run.status.value == "completed" %}
+          <span class="tag" style="background:#dcfce7;color:#15803d;">✓ completed</span>
+        {% elif run.status.value == "running" %}
+          <span class="tag" style="background:#dbeafe;color:#1d4ed8;">⏳ running</span>
+        {% elif run.status.value == "pending" %}
+          <span class="tag" style="background:#f1f5f9;color:#475569;">○ pending</span>
+        {% else %}
+          <span class="tag" style="background:#fee2e2;color:#dc2626;">✗ failed</span>
+        {% endif %}
+        {% if run.probe_meta.model_name %}
+          <span class="tag">{{ run.probe_meta.model_name }}</span>
+        {% endif %}
+      </div>
+    </div>
+    <div style="font-size:0.85rem;color:var(--muted);text-align:right;">
+      <div>Started: {{ run.started_at[:19].replace("T"," ") if run.started_at else "—" }}</div>
+      <div>Finished: {{ run.finished_at[:19].replace("T"," ") if run.finished_at else "—" }}</div>
+      {% if run.probe_meta.llm_api_base %}
+        <div style="margin-top:0.25rem;">Endpoint: <code style="font-size:0.8rem;">{{ run.probe_meta.llm_api_base }}</code></div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# Progress bar / text #}
+  <div style="margin-top:1rem;">
+    <div id="progress-text" style="font-size:0.9rem;color:var(--muted);margin-bottom:0.4rem;">
+      {{ run.completed_steps }} / {{ run.total_steps }} steps completed
+      {% if run.current_step and run.status.value == "running" %}
+        — <em>{{ run.current_step | replace("_", " ") }}</em>
+      {% endif %}
+    </div>
+    <div style="background:var(--border);border-radius:4px;height:8px;overflow:hidden;">
+      <div id="progress-bar" style="height:100%;background:var(--primary);width:{{ ((run.completed_steps / run.total_steps) * 100) | int }}%;transition:width 0.4s;"></div>
+    </div>
+  </div>
+
+  {% if run.error %}
+  <div class="alert alert-danger" style="margin-top:1rem;">{{ run.error }}</div>
+  {% endif %}
+</div>
+
+{# ── Steps table ──────────────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:1rem;">
+  <div class="card-title">Steps</div>
+
+  {# Legend #}
+  <div style="display:flex;gap:0.75rem;flex-wrap:wrap;font-size:0.8rem;margin-bottom:1rem;color:var(--muted);">
+    <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#16a34a;margin-right:3px;"></span>pass</span>
+    <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#d97706;margin-right:3px;"></span>warning</span>
+    <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#dc2626;margin-right:3px;"></span>fail</span>
+    <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#94a3b8;margin-right:3px;"></span>unknown / skipped</span>
+  </div>
+
+  <table id="steps-table" style="width:100%;border-collapse:collapse;font-size:0.875rem;">
+    <thead>
+      <tr style="border-bottom:2px solid var(--border);text-align:left;">
+        <th style="padding:0.5rem 0.75rem;">#</th>
+        <th style="padding:0.5rem 0.75rem;">Step</th>
+        <th style="padding:0.5rem 0.75rem;">Status</th>
+        <th style="padding:0.5rem 0.75rem;">Assessment</th>
+        <th style="padding:0.5rem 0.75rem;">Summary</th>
+        <th style="padding:0.5rem 0.75rem;text-align:right;">Duration</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for step in steps %}
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:0.5rem 0.75rem;color:var(--muted);">{{ loop.index }}</td>
+        <td style="padding:0.5rem 0.75rem;font-weight:500;">{{ step.name | replace("_", " ") }}</td>
+        <td style="padding:0.5rem 0.75rem;">
+          {% set sv = step.status.value %}
+          {% if sv == "passed" %}<span class="tag" style="background:#dcfce7;color:#15803d;">passed</span>
+          {% elif sv == "warning" %}<span class="tag" style="background:#fef3c7;color:#92400e;">warning</span>
+          {% elif sv == "failed" %}<span class="tag" style="background:#fee2e2;color:#dc2626;">failed</span>
+          {% elif sv == "running" %}<span class="tag" style="background:#dbeafe;color:#1d4ed8;">running</span>
+          {% elif sv == "skipped" %}<span class="tag" style="background:#f1f5f9;color:#64748b;">skipped</span>
+          {% else %}<span class="tag" style="background:#f1f5f9;color:#64748b;">pending</span>
+          {% endif %}
+        </td>
+        <td style="padding:0.5rem 0.75rem;">
+          {% set av = step.assessment.value %}
+          {% if av == "pass" %}<span class="tag" style="background:#dcfce7;color:#15803d;">pass</span>
+          {% elif av == "warning" %}<span class="tag" style="background:#fef3c7;color:#92400e;">warning</span>
+          {% elif av == "fail" %}<span class="tag" style="background:#fee2e2;color:#dc2626;">fail</span>
+          {% else %}<span class="tag" style="background:#f1f5f9;color:#64748b;">{{ av }}</span>
+          {% endif %}
+        </td>
+        <td style="padding:0.5rem 0.75rem;color:var(--muted);">{{ step.summary or "—" }}</td>
+        <td style="padding:0.5rem 0.75rem;text-align:right;color:var(--muted);font-size:0.8rem;">
+          {% if step.duration_ms is not none %}{{ step.duration_ms | int }}ms{% else %}—{% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" style="padding:1rem;color:var(--muted);text-align:center;">No steps recorded yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{# ── Final report ─────────────────────────────────────────────────────── #}
+{% if report %}
+<div class="card" style="margin-bottom:1rem;">
+  <div class="card-title">Final Report</div>
+
+  {# Recommendation badge #}
+  {% set rec = report.recommendation.value %}
+  <div style="margin-bottom:1.25rem;">
+    {% if rec == "suitable for basic agentic workflows" %}
+      <div style="display:inline-block;padding:0.6rem 1.25rem;border-radius:8px;background:#dcfce7;color:#15803d;font-weight:600;font-size:1rem;">
+        ✓ {{ rec }}
+      </div>
+    {% elif rec == "usable with limitations" %}
+      <div style="display:inline-block;padding:0.6rem 1.25rem;border-radius:8px;background:#fef3c7;color:#92400e;font-weight:600;font-size:1rem;">
+        ⚠ {{ rec }}
+      </div>
+    {% else %}
+      <div style="display:inline-block;padding:0.6rem 1.25rem;border-radius:8px;background:#fee2e2;color:#dc2626;font-weight:600;font-size:1rem;">
+        ✗ {{ rec }}
+      </div>
+    {% endif %}
+    <p style="margin:0.6rem 0 0;color:var(--muted);">{{ report.summary }}</p>
+  </div>
+
+  {# Per-capability table #}
+  <table style="width:100%;border-collapse:collapse;font-size:0.875rem;margin-bottom:1rem;">
+    <thead>
+      <tr style="border-bottom:2px solid var(--border);text-align:left;">
+        <th style="padding:0.4rem 0.75rem;">Capability</th>
+        <th style="padding:0.4rem 0.75rem;">Assessment</th>
+        <th style="padding:0.4rem 0.75rem;text-align:right;">Duration</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for name, assessment in report.per_capability.items() %}
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:0.4rem 0.75rem;">{{ name | replace("_", " ") }}</td>
+        <td style="padding:0.4rem 0.75rem;">
+          {% if assessment == "pass" %}<span class="tag" style="background:#dcfce7;color:#15803d;">pass</span>
+          {% elif assessment == "warning" %}<span class="tag" style="background:#fef3c7;color:#92400e;">warning</span>
+          {% elif assessment == "fail" %}<span class="tag" style="background:#fee2e2;color:#dc2626;">fail</span>
+          {% else %}<span class="tag" style="background:#f1f5f9;color:#64748b;">{{ assessment }}</span>
+          {% endif %}
+        </td>
+        <td style="padding:0.4rem 0.75rem;text-align:right;color:var(--muted);font-size:0.8rem;">
+          {% if report.timings[name] is not none %}{{ report.timings[name] | int }}ms{% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {# Raw JSON expandable #}
+  <details style="margin-top:0.5rem;">
+    <summary style="cursor:pointer;font-weight:500;color:var(--primary);">Raw Report JSON</summary>
+    <pre style="background:#1e293b;color:#93c5fd;padding:1rem;border-radius:6px;overflow:auto;font-size:0.78rem;margin-top:0.5rem;">{{ report_json }}</pre>
+  </details>
+</div>
+{% endif %}
+
+{# ── Navigation ───────────────────────────────────────────────────────── #}
+<div style="margin-bottom:2rem;">
+  <a href="/admin/probe" class="btn btn-secondary btn-sm">← All Runs</a>
+</div>
+
+{# ── Polling (only when run is active) ───────────────────────────────── #}
+{% if run.status.value in ("pending", "running") %}
+<script>
+  var _pollUrl = "/admin/probe/runs/{{ run.run_id }}/status";
+
+  function _updateProgress(d) {
+    var text = d.completed_steps + " / " + d.total_steps + " steps completed";
+    if (d.current_step && d.status === "running") {
+      text += " — " + d.current_step.replace(/_/g, " ");
+    }
+    var el = document.getElementById("progress-text");
+    if (el) el.textContent = text;
+    var bar = document.getElementById("progress-bar");
+    if (bar && d.total_steps > 0) {
+      bar.style.width = Math.round((d.completed_steps / d.total_steps) * 100) + "%";
+    }
+  }
+
+  function poll() {
+    fetch(_pollUrl)
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.status === "completed" || d.status === "failed") {
+          location.reload();
+        } else {
+          _updateProgress(d);
+          setTimeout(poll, 3000);
+        }
+      })
+      .catch(function() { setTimeout(poll, 5000); });
+  }
+
+  setTimeout(poll, 3000);
+</script>
+{% endif %}
+
+{% endblock %}

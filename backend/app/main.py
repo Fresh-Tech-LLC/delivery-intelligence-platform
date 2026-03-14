@@ -12,6 +12,8 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -22,6 +24,7 @@ from backend.app.routers import ba, jira, pm, power
 from backend.app.routers import batch as batch_router
 from backend.app.routers import knowledge as knowledge_router
 from backend.app.routers import projects as projects_router
+from backend.app.routers import admin_probe as admin_probe_router
 from backend.app.routers import qa as qa_router
 from backend.app.routers import requirements as requirements_router
 from backend.app.services.ba_agent import BAAgent
@@ -45,7 +48,14 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 settings = get_settings()
 
-app = FastAPI(title="Delivery Intelligence Platform", version="1.0.0")
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    from backend.app.services.capability_probe.probe_service import get_probe_service
+    get_probe_service().recover_stuck_runs()
+    yield
+
+
+app = FastAPI(title="Delivery Intelligence Platform", version="1.0.0", lifespan=_lifespan)
 
 _base = Path(__file__).resolve().parent.parent.parent  # repo root
 
@@ -69,6 +79,7 @@ app.include_router(batch_router.router)
 app.include_router(knowledge_router.router)
 app.include_router(requirements_router.router)
 app.include_router(qa_router.router)
+app.include_router(admin_probe_router.router)
 
 # ---------------------------------------------------------------------------
 # UI helpers

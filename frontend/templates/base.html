@@ -19,6 +19,7 @@
       <a href="/pm" class="nav-link {% if request.url.path == '/pm' %}active{% endif %}">PM Mode</a>
       <a href="/power" class="nav-link {% if '/power' in request.url.path %}active{% endif %}">Power Mode</a>
       <a href="/manage-projects" class="nav-link {% if '/manage-projects' in request.url.path %}active{% endif %}">Manage Projects</a>
+      <a href="/admin/probe" class="nav-link {% if '/admin/probe' in request.url.path %}active{% endif %}">Model Probe</a>
     </div>
     <span class="session-badge" title="Your session ID">Session: {{ session_id[:8] if session_id else '—' }}…</span>
   </nav>

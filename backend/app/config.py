@@ -95,6 +95,12 @@ class Settings(BaseSettings):
     qa_default_browser_role: str = "qa"
     qa_default_promotion_state: str = "draft"
 
+    # Capability Probe
+    probe_enabled: bool = True
+    probe_context_smoke_size: int = 40    # repetitions of ~100-char paragraph ≈ 4000 chars total
+    probe_step_timeout: int = 60          # seconds per step (informational; used in ProbeRunner)
+    probe_max_runs_listed: int = 20
+
     def __repr__(self) -> str:
         return (
             f"Settings(llm_api_base={self.llm_api_base!r}, "

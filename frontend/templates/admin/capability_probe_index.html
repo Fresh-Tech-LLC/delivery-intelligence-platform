@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Model Capability Probe | DIP Admin{% endblock %}
+
+{% block content %}
+<div class="card" style="margin-bottom:1.5rem;">
+  <div class="card-title">Model Capability Probe</div>
+  <h1 class="page-title">Model Capability Probe</h1>
+  <p style="color:var(--muted);margin:0.5rem 0 1rem;">
+    This is a lightweight operational check of the currently configured LLM integration
+    (<strong>{{ model_name }}</strong> via <code>{{ llm_api_base }}</code>).
+    It does not certify maximum limits or production-grade reliability.
+  </p>
+
+  {% if error == "already_running" %}
+  <div class="alert alert-warning">A probe run is already in progress. Wait for it to complete before starting a new one.</div>
+  {% elif error == "start_failed" %}
+  <div class="alert alert-danger">Failed to start probe run. Check the application logs.</div>
+  {% endif %}
+
+  <form method="post" action="/admin/probe/runs">
+    {% if active_run_id %}
+    <button class="btn btn-secondary" disabled type="submit">Probe Running…</button>
+    <span class="text-muted" style="margin-left:0.75rem;">
+      Run <a href="/admin/probe/runs/{{ active_run_id }}">{{ active_run_id[:12] }}…</a> is in progress.
+    </span>
+    {% else %}
+    <button class="btn btn-primary" type="submit">▶ Start New Probe</button>
+    {% endif %}
+  </form>
+</div>
+
+{% if runs %}
+<div class="card">
+  <div class="card-title">Recent Runs</div>
+  <table style="width:100%;border-collapse:collapse;font-size:0.9rem;">
+    <thead>
+      <tr style="border-bottom:2px solid var(--border);text-align:left;">
+        <th style="padding:0.5rem 0.75rem;">Run ID</th>
+        <th style="padding:0.5rem 0.75rem;">Status</th>
+        <th style="padding:0.5rem 0.75rem;">Started</th>
+        <th style="padding:0.5rem 0.75rem;">Finished</th>
+        <th style="padding:0.5rem 0.75rem;">Recommendation</th>
+        <th style="padding:0.5rem 0.75rem;"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for run in runs %}
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:0.5rem 0.75rem;font-family:monospace;font-size:0.8rem;">{{ run.run_id[:12] }}…</td>
+        <td style="padding:0.5rem 0.75rem;">
+          {% if run.status.value == "completed" %}
+            <span class="badge" style="background:#dcfce7;color:#15803d;">completed</span>
+          {% elif run.status.value == "running" %}
+            <span class="badge" style="background:#dbeafe;color:#1d4ed8;">running</span>
+          {% elif run.status.value == "pending" %}
+            <span class="badge" style="background:#f1f5f9;color:#475569;">pending</span>
+          {% else %}
+            <span class="badge" style="background:#fee2e2;color:#dc2626;">failed</span>
+          {% endif %}
+        </td>
+        <td style="padding:0.5rem 0.75rem;color:var(--muted);font-size:0.82rem;">{{ run.started_at[:19].replace("T"," ") if run.started_at else "—" }}</td>
+        <td style="padding:0.5rem 0.75rem;color:var(--muted);font-size:0.82rem;">{{ run.finished_at[:19].replace("T"," ") if run.finished_at else "—" }}</td>
+        <td style="padding:0.5rem 0.75rem;">
+          {% if run.status.value == "completed" %}
+            {# Recommendation shown only on run page; keep index light #}
+            <span class="text-muted">see run →</span>
+          {% else %}
+            —
+          {% endif %}
+        </td>
+        <td style="padding:0.5rem 0.75rem;">
+          <a href="/admin/probe/runs/{{ run.run_id }}" class="btn btn-sm btn-secondary">View</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card" style="color:var(--muted);text-align:center;padding:2rem;">
+  No probe runs yet. Click <strong>Start New Probe</strong> above to begin.
+</div>
+{% endif %}
+{% endblock %}
